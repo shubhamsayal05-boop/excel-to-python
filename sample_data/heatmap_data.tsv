@@ -1,0 +1,25 @@
+	Operation Modes	BYD Atto 3 BEV_NORMAL	BYD_Dolphin Surf_BEV_NORMAL
+	Operation Modes	DR	DR
+10000000	AVL-DRIVE Rating	8.3	8.2
+10100000	Drive away	7.9	7.4
+10101300	Creep	7.2	6.9
+10101100	Standing start	8.3	7.6
+10102400	Rolling start	7.8	8
+10120000	Acceleration	8.5	8.8
+10120200	Constant load	8.5	8.8
+10120300	Load increase		8.8
+10120900	Load decrease		8.7
+10030000	Tip in	8.6	8.8
+10030100	At deceleration	8.5	8.8
+10030200	At constant speed / acceleration	8.8	8.9
+10040000	Tip out	9	9.1
+10040300	At constant speed / acceleration	9	9.1
+10070000	Deceleration	8.3	9.1
+10070500	Without brake	9.5	9.7
+10071000	Constant Brake	8	8.9
+10090000	Gear shift	8.4	8.6
+10097800	Maneuvering	8	8.4
+10097900	Selector lever change	9.4	9.2
+10080000	Constant speed	8.3	8.9
+10080200	Without load	8.7	9.3
+10080100	Constant load	8.2	8.8
