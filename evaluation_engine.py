@@ -13,6 +13,16 @@ from config import (
     AVL_ODRIV_MAPPING,
 )
 
+# Font-color RGB codes used for dot (●) cells in the Excel Sheet1.
+# Format is "FFRRGGBB" (openpyxl includes the alpha prefix).
+_DOT_COLOR_MAP = {
+    "FF008000": "GREEN",   # dark green
+    "FFFFFF00": "YELLOW",  # bright yellow
+    "FFFF0000": "RED",     # bright red
+    "FFFFFFFF": "N/A",     # white = no status
+    "FF000000": "N/A",     # black text (sometimes in headers)
+}
+
 
 def parse_sheet1_data(text_input):
     """
@@ -139,6 +149,150 @@ def parse_sheet1_data(text_input):
                 "resp_target": _to_float(parts[14]),       # O
             }
             operations.append(op_data)
+
+    return {
+        "target_car": target_car,
+        "tested_car": tested_car,
+        "sections": sections,
+        "operations": operations,
+    }
+
+
+def parse_sheet1_from_excel(file_obj):
+    """
+    Parse Sheet1 directly from an uploaded Excel (.xlsx/.xlsm) file,
+    extracting the actual font colors of the dot (●) characters so that
+    users do not need to manually encode G/Y/R.
+
+    The function reads the openpyxl workbook in read-only + data-only mode,
+    walks the same row/column layout expected by ``parse_sheet1_data``, and
+    translates each ``●`` cell's font-color RGB string into a status string
+    via ``_DOT_COLOR_MAP``.
+
+    Args:
+        file_obj: A file-like object (e.g. ``st.file_uploader`` result) for
+                  an .xlsx or .xlsm workbook that contains a sheet named
+                  "Sheet1".
+
+    Returns:
+        Same dict as ``parse_sheet1_data`` on success, or ``None`` if the
+        sheet cannot be found or parsed.
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(file_obj, data_only=True)
+    if "Sheet1" not in wb.sheetnames:
+        wb.close()
+        return None
+
+    ws = wb["Sheet1"]
+
+    # --- Read header row 2 to find car names ---
+    car_names = []
+    skip_labels = {"current status", "lowest events", "drivability lowest events",
+                   "responsiveness lowest events", "p1", "p2", "p3", "use case",
+                   "drivability", "responsiveness", ""}
+    for col_idx in range(1, ws.max_column + 1):
+        val = ws.cell(row=2, column=col_idx).value
+        if val is not None:
+            val_str = str(val).strip()
+            if val_str.lower() not in skip_labels and val_str not in car_names:
+                car_names.append(val_str)
+
+    tested_car = car_names[0] if len(car_names) > 0 else "Tested Vehicle"
+    target_car = car_names[1] if len(car_names) > 1 else "Target Vehicle"
+
+    # --- Helper: read dot color from a cell ---
+    def _dot_status(cell):
+        """Return GREEN / YELLOW / RED / N/A from a cell's font color."""
+        val = cell.value
+        if val is None:
+            return "N/A"
+        val_str = str(val).strip()
+        # If the user typed G/Y/R instead of using dots, honour that too
+        if val_str.upper() in ("G", "GREEN"):
+            return "GREEN"
+        if val_str.upper() in ("Y", "YELLOW"):
+            return "YELLOW"
+        if val_str.upper() in ("R", "RED"):
+            return "RED"
+        # Now try font-color on the ● character
+        if val_str != "●":
+            return "N/A"
+        try:
+            rgb = str(cell.font.color.rgb)
+            return _DOT_COLOR_MAP.get(rgb, "N/A")
+        except (AttributeError, TypeError):
+            return "N/A"
+
+    # --- Walk data rows (from row 4 onward, matching parse_sheet1_data) ---
+    sections = []
+    operations = []
+    current_section = None
+
+    for row_idx in range(4, ws.max_row + 1):
+        col_a = ws.cell(row=row_idx, column=1).value  # section / empty
+        col_b = ws.cell(row=row_idx, column=2).value  # op code
+        col_c = ws.cell(row=row_idx, column=3).value  # op name
+
+        col_a_str = str(col_a).strip() if col_a is not None else ""
+        col_b_str = str(col_b).strip() if col_b is not None else ""
+
+        # Detect section header vs data row
+        is_section = False
+        if col_a_str and not col_b_str:
+            is_section = True
+        elif col_a_str and col_b_str:
+            try:
+                int(col_b_str)
+            except ValueError:
+                is_section = True
+
+        if is_section:
+            h_val = ws.cell(row=row_idx, column=8).value   # H
+            i_val = ws.cell(row=row_idx, column=9).value    # I
+            n_val = ws.cell(row=row_idx, column=14).value   # N
+            o_val = ws.cell(row=row_idx, column=15).value   # O
+            section_data = {
+                "name": col_a_str,
+                "driv_tested_avg": _to_float(h_val),
+                "driv_target_avg": _to_float(i_val),
+                "resp_tested_avg": _to_float(n_val),
+                "resp_target_avg": _to_float(o_val),
+            }
+            sections.append(section_data)
+            current_section = col_a_str
+            continue
+
+        # Data row — op code must be numeric
+        try:
+            op_code = int(col_b_str)
+        except (ValueError, TypeError):
+            continue
+
+        op_name = str(col_c).strip() if col_c else ""
+
+        op_data = {
+            "section": current_section,
+            "op_code": op_code,
+            "operation": op_name,
+            "driv_p1": _dot_status(ws.cell(row=row_idx, column=5)),
+            "driv_p2": _dot_status(ws.cell(row=row_idx, column=6)),
+            "driv_p3": _dot_status(ws.cell(row=row_idx, column=7)),
+            "driv_tested": _to_float(ws.cell(row=row_idx, column=8).value),
+            "driv_target": _to_float(ws.cell(row=row_idx, column=9).value),
+            "resp_p1": _dot_status(ws.cell(row=row_idx, column=11)),
+            "resp_p2": _dot_status(ws.cell(row=row_idx, column=12)),
+            "resp_p3": _dot_status(ws.cell(row=row_idx, column=13)),
+            "resp_tested": _to_float(ws.cell(row=row_idx, column=14).value),
+            "resp_target": _to_float(ws.cell(row=row_idx, column=15).value),
+        }
+        operations.append(op_data)
+
+    wb.close()
+
+    if not operations:
+        return None
 
     return {
         "target_car": target_car,

@@ -19,6 +19,7 @@ from evaluation_engine import (
     build_overall_status,
     calculate_group_status,
     parse_sheet1_data,
+    parse_sheet1_from_excel,
 )
 from heatmap_engine import (
     build_heatmap_template,
@@ -358,3 +359,95 @@ class TestFilterHeatmapRows:
         result = filter_heatmap_rows(df, "Vehicle")
         assert len(result) == 2
         assert 2 not in result["Op Code"].values
+
+
+# ============================================================================
+# Tests for parse_sheet1_from_excel
+# ============================================================================
+EXCEL_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "AVLDrive_Heatmap_Tool version_5.1_Atto3.xlsm",
+)
+
+
+class TestParseSheet1FromExcel:
+    """Integration tests that read the actual sample Excel workbook."""
+
+    def test_returns_dict_with_expected_keys(self):
+        if not os.path.exists(EXCEL_FILE):
+            return  # skip when the sample file isn't present
+        result = parse_sheet1_from_excel(EXCEL_FILE)
+        assert result is not None
+        assert "target_car" in result
+        assert "tested_car" in result
+        assert "sections" in result
+        assert "operations" in result
+
+    def test_detects_car_names(self):
+        if not os.path.exists(EXCEL_FILE):
+            return
+        result = parse_sheet1_from_excel(EXCEL_FILE)
+        # The sample file has two vehicles in the header
+        assert result["tested_car"] != ""
+        assert result["target_car"] != ""
+        assert result["tested_car"] != result["target_car"]
+
+    def test_reads_green_dot(self):
+        if not os.path.exists(EXCEL_FILE):
+            return
+        result = parse_sheet1_from_excel(EXCEL_FILE)
+        # DA Rolling Start (10102400) has GREEN dots
+        op = next((o for o in result["operations"] if o["op_code"] == 10102400), None)
+        assert op is not None
+        assert op["driv_p1"] == "GREEN"
+
+    def test_reads_red_dot(self):
+        if not os.path.exists(EXCEL_FILE):
+            return
+        result = parse_sheet1_from_excel(EXCEL_FILE)
+        # Drive Away Creep (10101300) has RED driv_p1
+        op = next((o for o in result["operations"] if o["op_code"] == 10101300), None)
+        assert op is not None
+        assert op["driv_p1"] == "RED"
+
+    def test_reads_yellow_dot(self):
+        if not os.path.exists(EXCEL_FILE):
+            return
+        result = parse_sheet1_from_excel(EXCEL_FILE)
+        # One of the Maneuvering rows (10097800) has YELLOW resp_p1
+        maneuvering_ops = [o for o in result["operations"] if o["op_code"] == 10097800]
+        yellow_found = any(o["resp_p1"] == "YELLOW" for o in maneuvering_ops)
+        assert yellow_found, "Expected at least one Maneuvering op with YELLOW resp_p1"
+
+    def test_white_dot_is_na(self):
+        if not os.path.exists(EXCEL_FILE):
+            return
+        result = parse_sheet1_from_excel(EXCEL_FILE)
+        # Accel Cst Load (10120200) has white resp dots -> N/A
+        op = next((o for o in result["operations"] if o["op_code"] == 10120200), None)
+        assert op is not None
+        assert op["resp_p1"] == "N/A"
+
+    def test_sections_parsed(self):
+        if not os.path.exists(EXCEL_FILE):
+            return
+        result = parse_sheet1_from_excel(EXCEL_FILE)
+        section_names = [s["name"] for s in result["sections"]]
+        assert len(section_names) > 0
+        assert "Drive away" in section_names
+
+    def test_missing_sheet_returns_none(self):
+        """A workbook without Sheet1 returns None."""
+        import tempfile
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "OtherSheet"
+        ws["A1"] = "dummy"
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        wb.save(tmp.name)
+        wb.close()
+        tmp.close()
+        result = parse_sheet1_from_excel(tmp.name)
+        assert result is None
+        os.unlink(tmp.name)

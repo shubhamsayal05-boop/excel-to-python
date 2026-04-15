@@ -29,6 +29,7 @@ from heatmap_engine import (
 )
 from evaluation_engine import (
     parse_sheet1_data,
+    parse_sheet1_from_excel,
     evaluate_avl_status,
     build_overall_status,
     update_sub_operation_heatmap,
@@ -171,58 +172,31 @@ def heatmap_input_page():
 def sheet1_input_page():
     st.header("📊 Sheet1 Data Input (Drivability / Responsiveness)")
     st.markdown("""
-    Paste your **Sheet1** data here. This contains the Drivability and Responsiveness
+    Load your **Sheet1** data containing the Drivability and Responsiveness
     evaluation data with colored dot statuses.
 
-    **Since colors can't be pasted as text**, encode dot colors as:
-    - **G** = Green ●
-    - **Y** = Yellow ●
-    - **R** = Red ●
-    - Leave **blank** = White/No data (N/A)
-
-    **Expected format** (tab-separated):
-    ```
-    				Drivability					Responsiveness
-    			Current Status	Tested_Vehicle	Target_Vehicle	Driv Lowest	Current Status	Tested_Vehicle	Target_Vehicle	Resp Lowest
-    USE CASE			P1	P2	P3			P1	P2	P3
-    Drive away								78.8	84.4					99	98.2
-    	10102400	DA Rolling Start	G	G	G	100	100		G	G	G	100	93
-    	10101300	Drive Away Creep	R	G	G	11.2	34.3		G	G	G	100	100
-    ...
-    ```
+    **Recommended:** Upload the Excel file directly so dot colors (green / yellow / red)
+    are read automatically. If pasting as text, encode dot colors as **G**, **Y**, **R**,
+    or leave blank for N/A.
     """)
 
-    sheet1_text = st.text_area(
-        "Paste Sheet1 data (tab-separated):",
-        height=400,
-        placeholder="Paste tab-separated data here...",
-        key="sheet1_text_input",
+    input_method = st.radio(
+        "Input method:",
+        ["Upload Excel File (recommended)", "Paste Text"],
+        key="sheet1_input_method",
     )
 
-    col1, col2 = st.columns(2)
-    with col1:
-        target_car_override = st.text_input(
-            "Target Vehicle Name (optional override):",
-            key="target_car_name",
-            help="If not auto-detected from pasted data, enter the target vehicle name here.",
-        )
-    with col2:
-        tested_car_override = st.text_input(
-            "Tested Vehicle Name (optional override):",
-            key="tested_car_name",
-            help="If not auto-detected from pasted data, enter the tested vehicle name here.",
+    if input_method == "Upload Excel File (recommended)":
+        uploaded_file = st.file_uploader(
+            "Upload the AVL-DRIVE Excel file (.xlsx / .xlsm):",
+            type=["xlsx", "xlsm"],
+            key="sheet1_file",
         )
 
-    if st.button("🔄 Process Sheet1 Data", key="process_sheet1"):
-        if sheet1_text.strip():
-            parsed = parse_sheet1_data(sheet1_text)
+        if uploaded_file and st.button("🔄 Process Sheet1 from Excel", key="process_sheet1_excel"):
+            with st.spinner("Reading Sheet1 and extracting dot colors..."):
+                parsed = parse_sheet1_from_excel(uploaded_file)
             if parsed:
-                # Override car names if provided
-                if target_car_override:
-                    parsed["target_car"] = target_car_override
-                if tested_car_override:
-                    parsed["tested_car"] = tested_car_override
-
                 st.session_state["sheet1_data"] = parsed
                 st.success(
                     f"✅ Loaded {len(parsed['operations'])} operations in "
@@ -231,18 +205,70 @@ def sheet1_input_page():
                     f"**Tested:** {parsed['tested_car']}"
                 )
             else:
-                st.error("❌ Could not parse the data. Please check the format.")
-        else:
-            st.warning("⚠️ Please paste data first.")
+                st.error(
+                    "❌ Could not parse Sheet1. Make sure the file contains a "
+                    "sheet named **Sheet1** with the expected layout."
+                )
 
-    # Show parsed data if available
+    else:
+        st.markdown("""
+        **Since colors can't be pasted as text**, encode dot colors as:
+        - **G** = Green ●  &nbsp; **Y** = Yellow ●  &nbsp; **R** = Red ●
+        - Leave **blank** = White/No data (N/A)
+        """)
+
+        sheet1_text = st.text_area(
+            "Paste Sheet1 data (tab-separated):",
+            height=400,
+            placeholder="Paste tab-separated data here...",
+            key="sheet1_text_input",
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            target_car_override = st.text_input(
+                "Target Vehicle Name (optional override):",
+                key="target_car_name",
+                help="If not auto-detected from pasted data, enter the target vehicle name here.",
+            )
+        with col2:
+            tested_car_override = st.text_input(
+                "Tested Vehicle Name (optional override):",
+                key="tested_car_name",
+                help="If not auto-detected from pasted data, enter the tested vehicle name here.",
+            )
+
+        if st.button("🔄 Process Sheet1 Data", key="process_sheet1"):
+            if sheet1_text.strip():
+                parsed = parse_sheet1_data(sheet1_text)
+                if parsed:
+                    if target_car_override:
+                        parsed["target_car"] = target_car_override
+                    if tested_car_override:
+                        parsed["tested_car"] = tested_car_override
+
+                    st.session_state["sheet1_data"] = parsed
+                    st.success(
+                        f"✅ Loaded {len(parsed['operations'])} operations in "
+                        f"{len(parsed['sections'])} sections.\n\n"
+                        f"**Target:** {parsed['target_car']}  |  "
+                        f"**Tested:** {parsed['tested_car']}"
+                    )
+                else:
+                    st.error("❌ Could not parse the data. Please check the format.")
+            else:
+                st.warning("⚠️ Please paste data first.")
+
+    # Show parsed data with colored dots if available
     if "sheet1_data" in st.session_state:
         data = st.session_state["sheet1_data"]
         st.subheader("Parsed Operations")
 
-        ops_df = pd.DataFrame(data["operations"])
-        if not ops_df.empty:
-            st.dataframe(ops_df, use_container_width=True)
+        ops = data["operations"]
+        if ops:
+            html = _build_sheet1_html(ops, data.get("sections", []),
+                                      data["tested_car"], data["target_car"])
+            st.markdown(html, unsafe_allow_html=True)
 
         if data["sections"]:
             st.subheader("Sections")
@@ -482,10 +508,14 @@ def help_page():
 
         ### Sheet1 Data (Drivability / Responsiveness)
 
-        Since colored dots can't be pasted as text, encode colors:
-        - **G** = Green, **Y** = Yellow, **R** = Red, blank = N/A
+        **Recommended:** Upload the Excel (.xlsx / .xlsm) file directly.
+        The tool reads the actual font colors of the dot (●) characters
+        from the cells so you don't need to manually encode G/Y/R.
 
-        Paste tab-separated with columns:
+        **Alternative (text paste):** Encode dot colors as
+        **G** = Green, **Y** = Yellow, **R** = Red, blank = N/A.
+
+        Tab-separated columns:
         ```
         SectionOrBlank  OpCode  OpName  (empty)  DrivP1  DrivP2  DrivP3  DrivTested  DrivTarget  (empty)  RespP1  RespP2  RespP3  RespTested  RespTarget
         ```
@@ -733,6 +763,149 @@ def _build_heatmap_html(df, vehicle_names, target_label):
         rows_html.append(r)
 
     table = f'{css}<div class="hm-wrap"><table class="hm-table">{"".join(rows_html)}</table></div>'
+    return table
+
+
+def _dot_html(status):
+    """Return an HTML colored dot (●) matching the Excel font color."""
+    color_map = {
+        "GREEN": "#008000",
+        "YELLOW": "#FFFF00",
+        "RED": "#FF0000",
+    }
+    color = color_map.get(str(status).upper(), "#D0D0D0")
+    if str(status).upper() in ("N/A", ""):
+        # White dot on dark background is hard to see — use a light gray
+        return '<span style="color:#D0D0D0;font-size:16px;">●</span>'
+    return f'<span style="color:{color};font-size:16px;">●</span>'
+
+
+def _build_sheet1_html(operations, sections, tested_car, target_car):
+    """
+    Build an HTML table that displays Sheet1 data with actual colored dots,
+    replicating the Excel look.
+    """
+    css = """
+    <style>
+    .s1-wrap { overflow-x: auto; }
+    .s1-table {
+        border-collapse: collapse;
+        font-family: Arial, Calibri, sans-serif;
+        font-size: 12px;
+        width: 100%;
+        min-width: 800px;
+    }
+    .s1-table th, .s1-table td {
+        border: 1px solid #B4C6E7;
+        padding: 4px 6px;
+        white-space: nowrap;
+    }
+    .s1-hdr {
+        background-color: #4472C4;
+        color: #FFFFFF;
+        text-align: center;
+        font-weight: bold;
+    }
+    .s1-hdr-left {
+        background-color: #4472C4;
+        color: #FFFFFF;
+        text-align: left;
+        font-weight: bold;
+    }
+    .s1-sub {
+        background-color: #D9E1F2;
+        text-align: center;
+        font-size: 11px;
+    }
+    .s1-section td {
+        font-weight: bold;
+        background-color: #D6DCE4;
+    }
+    .s1-code { text-align: left; font-size: 10px; color: #808080; width: 70px; }
+    .s1-opname { text-align: left; min-width: 180px; }
+    .s1-dot { text-align: center; width: 30px; background: #2B2B2B; }
+    .s1-pct { text-align: center; min-width: 60px; }
+    </style>
+    """
+
+    rows_html = []
+
+    # --- Header row 1: Drivability / Responsiveness spans ---
+    r = '<tr>'
+    r += '<td class="s1-hdr" rowspan="2" style="width:70px;"></td>'
+    r += '<td class="s1-hdr-left" rowspan="2" style="min-width:180px;">USE CASE</td>'
+    r += f'<td class="s1-hdr" colspan="5">Drivability</td>'
+    r += f'<td class="s1-hdr" colspan="5">Responsiveness</td>'
+    r += '</tr>'
+    rows_html.append(r)
+
+    # --- Header row 2: P1 P2 P3 Tested Target ---
+    r = '<tr>'
+    r += '<td class="s1-sub">P1</td>'
+    r += '<td class="s1-sub">P2</td>'
+    r += '<td class="s1-sub">P3</td>'
+    r += f'<td class="s1-sub">{_html.escape(tested_car)}</td>'
+    r += f'<td class="s1-sub">{_html.escape(target_car)}</td>'
+    r += '<td class="s1-sub">P1</td>'
+    r += '<td class="s1-sub">P2</td>'
+    r += '<td class="s1-sub">P3</td>'
+    r += f'<td class="s1-sub">{_html.escape(tested_car)}</td>'
+    r += f'<td class="s1-sub">{_html.escape(target_car)}</td>'
+    r += '</tr>'
+    rows_html.append(r)
+
+    # Build a section lookup for section header rows
+    section_set = {s["name"] for s in sections}
+    # Track which sections have already been rendered
+    rendered_sections = set()
+
+    for op in operations:
+        section_name = op.get("section", "")
+
+        # Emit section header row if not yet rendered
+        if section_name and section_name not in rendered_sections:
+            rendered_sections.add(section_name)
+            sec_info = next((s for s in sections if s["name"] == section_name), None)
+            r = '<tr class="s1-section">'
+            r += '<td></td>'
+            r += f'<td>{_html.escape(section_name)}</td>'
+            r += '<td></td><td></td><td></td>'  # P1 P2 P3
+            # driv tested / target averages
+            dtv = sec_info["driv_tested_avg"] if sec_info else 0
+            dta = sec_info["driv_target_avg"] if sec_info else 0
+            r += f'<td class="s1-pct">{_fmt_score(dtv) if dtv else ""}</td>'
+            r += f'<td class="s1-pct">{_fmt_score(dta) if dta else ""}</td>'
+            r += '<td></td><td></td><td></td>'  # P1 P2 P3
+            rtv = sec_info["resp_tested_avg"] if sec_info else 0
+            rta = sec_info["resp_target_avg"] if sec_info else 0
+            r += f'<td class="s1-pct">{_fmt_score(rtv) if rtv else ""}</td>'
+            r += f'<td class="s1-pct">{_fmt_score(rta) if rta else ""}</td>'
+            r += '</tr>'
+            rows_html.append(r)
+
+        # Data row
+        r = '<tr>'
+        r += f'<td class="s1-code">{op["op_code"]}</td>'
+        r += f'<td class="s1-opname">{_html.escape(op["operation"])}</td>'
+
+        # Drivability dots + percentages
+        r += f'<td class="s1-dot">{_dot_html(op["driv_p1"])}</td>'
+        r += f'<td class="s1-dot">{_dot_html(op["driv_p2"])}</td>'
+        r += f'<td class="s1-dot">{_dot_html(op["driv_p3"])}</td>'
+        r += f'<td class="s1-pct">{_fmt_score(op["driv_tested"])}</td>'
+        r += f'<td class="s1-pct">{_fmt_score(op["driv_target"])}</td>'
+
+        # Responsiveness dots + percentages
+        r += f'<td class="s1-dot">{_dot_html(op["resp_p1"])}</td>'
+        r += f'<td class="s1-dot">{_dot_html(op["resp_p2"])}</td>'
+        r += f'<td class="s1-dot">{_dot_html(op["resp_p3"])}</td>'
+        r += f'<td class="s1-pct">{_fmt_score(op["resp_tested"])}</td>'
+        r += f'<td class="s1-pct">{_fmt_score(op["resp_target"])}</td>'
+
+        r += '</tr>'
+        rows_html.append(r)
+
+    table = f'{css}<div class="s1-wrap"><table class="s1-table">{"".join(rows_html)}</table></div>'
     return table
 
 
