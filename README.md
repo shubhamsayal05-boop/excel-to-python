@@ -165,6 +165,6 @@ You can copy the contents of these files and paste them directly into the applic
 
 - The original Excel tool used VBA macros for data processing and colored cell formatting
 - This Python version uses Streamlit for the web UI and pandas for data processing
-- Dot colors from the Excel tool (which rely on font color) are encoded as text (G/Y/R) in the Python version since web-based text input cannot carry color metadata
+- Dot colors from the Excel tool (which rely on font color) are preserved when uploading the original Excel file directly. The tool reads the actual ● font color (green / yellow / red / white) using openpyxl. When pasting as text, dot colors are encoded as text (G/Y/R) since web-based text input cannot carry color metadata
 - All evaluation rules, thresholds, and status combination logic are faithfully ported from the VBA code
 - The operation mode mappings and AVL-ODRIV mappings are embedded in `config.py`

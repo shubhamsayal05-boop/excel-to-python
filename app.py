@@ -6,6 +6,7 @@ Usage:
     streamlit run app.py
 """
 
+import html as _html
 import io
 
 import pandas as pd
@@ -589,9 +590,6 @@ def _fmt_score(val):
         return str(int(v)) if v == int(v) else f"{v:.1f}"
     except (ValueError, TypeError):
         return str(val)
-
-
-_html = __import__("html")
 
 
 def _build_heatmap_html(df, vehicle_names, target_label):
