@@ -11,6 +11,8 @@ from config import (
     BENCH_SENTINEL,
     YELLOW_GROUP_THRESHOLD,
     AVL_ODRIV_MAPPING,
+    PARENT_OPERATION_CODES,
+    HEATMAP_OPERATION_CODES,
 )
 
 # Font-color RGB codes used for dot (●) cells in the Excel Sheet1.
@@ -465,7 +467,12 @@ def calculate_group_status(operations, status_key="driv_p1"):
 def update_sub_operation_heatmap(heatmap_df, eval_results_df):
     """
     Update heatmap status column based on evaluation results.
-    Corresponds to VBA UpdateSubOperationHeatMap.
+    Corresponds to VBA UpdateSubOperationHeatMap + Update_All_Operation_Mode_Status.
+
+    Sub-operation rows get a status of GREEN / YELLOW / RED (displayed as
+    colored dots in the UI).  Parent (group header) rows get an aggregate
+    status of OK / Acceptable / NOK using the same logic as
+    ``calculate_group_status``.
 
     Args:
         heatmap_df: DataFrame with heatmap data
@@ -481,17 +488,55 @@ def update_sub_operation_heatmap(heatmap_df, eval_results_df):
         return result
 
     # Build dict of op_code -> overall status from eval results
-    # Use the "Overall Status by Op Code" logic
     overall_df = build_overall_status(eval_results_df)
     status_dict = {}
     for _, row in overall_df.iterrows():
         status_dict[str(row["Op Code"])] = row["Overall Status"]
 
-    # Apply to heatmap
+    # Apply sub-operation statuses
     for idx, row in result.iterrows():
         op_code = str(row["Op Code"])
         if op_code in status_dict:
             result.at[idx, "Status"] = status_dict[op_code]
+
+    # --- Compute parent (group header) statuses ---
+    # Walk the heatmap in order; each parent row owns the sub-operation rows
+    # that follow it until the next parent row.
+    op_codes_in_order = result["Op Code"].tolist()
+    parent_indices = []
+    for idx, code in enumerate(op_codes_in_order):
+        if code in PARENT_OPERATION_CODES:
+            parent_indices.append(idx)
+
+    for pi, parent_idx in enumerate(parent_indices):
+        # Children span from the row after this parent to just before the next
+        # parent (or end of table).
+        child_start = parent_idx + 1
+        child_end = (
+            parent_indices[pi + 1] if pi + 1 < len(parent_indices)
+            else len(op_codes_in_order)
+        )
+        child_statuses = []
+        for ci in range(child_start, child_end):
+            s = str(result.iat[ci, result.columns.get_loc("Status")]).upper()
+            if s in ("GREEN", "YELLOW", "RED"):
+                child_statuses.append(s)
+
+        if not child_statuses:
+            continue
+
+        red_count = child_statuses.count("RED")
+        yellow_count = child_statuses.count("YELLOW")
+        total = len(child_statuses)
+
+        if red_count > 0:
+            group_status = "NOK"
+        elif yellow_count / total > YELLOW_GROUP_THRESHOLD:
+            group_status = "Acceptable"
+        else:
+            group_status = "OK"
+
+        result.iat[parent_idx, result.columns.get_loc("Status")] = group_status
 
     return result
 

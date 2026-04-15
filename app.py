@@ -749,12 +749,37 @@ def _build_heatmap_html(df, vehicle_names, target_label):
 
         if has_status:
             status_val = row.get("Status", "")
-            sbg, sfc = _status_bg(status_val)
-            status_display = str(status_val) if status_val and not (isinstance(status_val, float) and pd.isna(status_val)) else ""
-            r += (
-                f'<td class="hm-status" style="background-color:{sbg};color:{sfc};">'
-                f'{_html.escape(status_display)}</td>'
-            )
+            status_str = str(status_val).strip() if status_val and not (isinstance(status_val, float) and pd.isna(status_val)) else ""
+            status_upper = status_str.upper()
+
+            if is_parent:
+                # Parent rows show text: OK / Acceptable / NOK with color
+                if status_upper == "NOK":
+                    sbg, sfc = (COLOR_RED, "#FFFFFF")
+                elif status_upper == "ACCEPTABLE":
+                    sbg, sfc = (COLOR_YELLOW, "#000000")
+                elif status_upper == "OK":
+                    sbg, sfc = (COLOR_GREEN, "#FFFFFF")
+                else:
+                    sbg, sfc = ("#FFFFFF", "#000000")
+                r += (
+                    f'<td class="hm-status" style="background-color:{sbg};color:{sfc};">'
+                    f'{_html.escape(status_str)}</td>'
+                )
+            else:
+                # Sub-operation rows show a colored dot (●)
+                if status_upper in ("GREEN", "YELLOW", "RED"):
+                    dot_color = {
+                        "GREEN": COLOR_GREEN,
+                        "YELLOW": COLOR_YELLOW,
+                        "RED": COLOR_RED,
+                    }[status_upper]
+                    r += (
+                        f'<td class="hm-status" style="background-color:#FFFFFF;">'
+                        f'<span style="color:{dot_color};font-size:18px;">●</span></td>'
+                    )
+                else:
+                    r += '<td class="hm-status"></td>'
             r += '<td class="hm-comments"></td>'
 
         r += '</tr>'

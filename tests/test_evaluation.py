@@ -18,6 +18,7 @@ from evaluation_engine import (
     evaluate_avl_status,
     build_overall_status,
     calculate_group_status,
+    update_sub_operation_heatmap,
     parse_sheet1_data,
     parse_sheet1_from_excel,
 )
@@ -27,7 +28,7 @@ from heatmap_engine import (
     refresh_heatmap,
     filter_heatmap_rows,
 )
-from config import BENCH_SENTINEL
+from config import BENCH_SENTINEL, PARENT_OPERATION_CODES
 
 
 # ============================================================================
@@ -344,6 +345,66 @@ class TestCalculateGroupStatus:
 
     def test_empty(self):
         assert calculate_group_status([], "driv_p1") == ""
+
+
+# ============================================================================
+# Tests for update_sub_operation_heatmap (parent group status + sub-op dots)
+# ============================================================================
+class TestUpdateSubOperationHeatmap:
+    def _make_heatmap_df(self):
+        """Build a small heatmap with one parent and two children."""
+        return pd.DataFrame({
+            "Op Code": [10100000, 10101300, 10101100, 10102400],
+            "Operation Mode": ["Drive away", "Creep", "Standing start", "Rolling start"],
+        })
+
+    def _make_eval_results(self, statuses):
+        """Build eval results for the three child op codes."""
+        codes = [10101300, 10101100, 10102400]
+        rows = []
+        for code, status in zip(codes, statuses):
+            rows.append({"Op Code": code, "Operation": "x", "Final Status": status})
+        return pd.DataFrame(rows)
+
+    def test_parent_ok_when_all_children_green(self):
+        hm = self._make_heatmap_df()
+        ev = self._make_eval_results(["GREEN", "GREEN", "GREEN"])
+        result = update_sub_operation_heatmap(hm, ev)
+        assert result.iloc[0]["Status"] == "OK"
+
+    def test_parent_nok_when_any_child_red(self):
+        hm = self._make_heatmap_df()
+        ev = self._make_eval_results(["GREEN", "RED", "GREEN"])
+        result = update_sub_operation_heatmap(hm, ev)
+        assert result.iloc[0]["Status"] == "NOK"
+
+    def test_parent_acceptable_when_many_yellow(self):
+        hm = self._make_heatmap_df()
+        ev = self._make_eval_results(["YELLOW", "YELLOW", "GREEN"])
+        result = update_sub_operation_heatmap(hm, ev)
+        # 2/3 = 66% > 35% -> Acceptable
+        assert result.iloc[0]["Status"] == "Acceptable"
+
+    def test_sub_operation_gets_status(self):
+        hm = self._make_heatmap_df()
+        ev = self._make_eval_results(["GREEN", "RED", "YELLOW"])
+        result = update_sub_operation_heatmap(hm, ev)
+        assert result.iloc[1]["Status"] == "GREEN"    # 10101300
+        assert result.iloc[2]["Status"] == "RED"      # 10101100
+        assert result.iloc[3]["Status"] == "YELLOW"   # 10102400
+
+    def test_empty_eval_results(self):
+        hm = self._make_heatmap_df()
+        ev = pd.DataFrame()
+        result = update_sub_operation_heatmap(hm, ev)
+        assert all(result["Status"] == "")
+
+    def test_parent_empty_when_no_children_have_status(self):
+        hm = self._make_heatmap_df()
+        ev = self._make_eval_results(["N/A", "N/A", "N/A"])
+        result = update_sub_operation_heatmap(hm, ev)
+        # Parent should still be empty when all children are N/A
+        assert result.iloc[0]["Status"] == ""
 
 
 # ============================================================================
