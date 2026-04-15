@@ -512,3 +512,119 @@ class TestParseSheet1FromExcel:
         result = parse_sheet1_from_excel(tmp.name)
         assert result is None
         os.unlink(tmp.name)
+
+
+# ============================================================================
+# Tests for parse_odriv_from_excel
+# ============================================================================
+ODRIV_FILE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "sample_data",
+    "odriv_sample.xlsm",
+)
+
+
+class TestParseOdrivFromExcel:
+    """Integration tests that read the ODRIV sample Excel workbook."""
+
+    def test_returns_dict_with_expected_keys(self):
+        if not os.path.exists(ODRIV_FILE):
+            return
+        from evaluation_engine import parse_odriv_from_excel
+        result = parse_odriv_from_excel(ODRIV_FILE)
+        assert result is not None
+        assert "target_car" in result
+        assert "tested_car" in result
+        assert "sections" in result
+        assert "operations" in result
+
+    def test_detects_car_names(self):
+        if not os.path.exists(ODRIV_FILE):
+            return
+        from evaluation_engine import parse_odriv_from_excel
+        result = parse_odriv_from_excel(ODRIV_FILE)
+        assert "BYD_Dolphin" in result["tested_car"]
+        assert "Atto 3" in result["target_car"]
+
+    def test_reads_green_dot(self):
+        if not os.path.exists(ODRIV_FILE):
+            return
+        from evaluation_engine import parse_odriv_from_excel
+        result = parse_odriv_from_excel(ODRIV_FILE)
+        op = next((o for o in result["operations"] if o["op_code"] == 10102400), None)
+        assert op is not None
+        assert op["driv_p1"] == "GREEN"
+
+    def test_reads_red_dot(self):
+        if not os.path.exists(ODRIV_FILE):
+            return
+        from evaluation_engine import parse_odriv_from_excel
+        result = parse_odriv_from_excel(ODRIV_FILE)
+        op = next((o for o in result["operations"] if o["op_code"] == 10101300), None)
+        assert op is not None
+        assert op["driv_p1"] == "RED"
+
+    def test_reads_yellow_dot(self):
+        if not os.path.exists(ODRIV_FILE):
+            return
+        from evaluation_engine import parse_odriv_from_excel
+        result = parse_odriv_from_excel(ODRIV_FILE)
+        op = next((o for o in result["operations"] if o["op_code"] == 10451400), None)
+        assert op is not None
+        assert op["driv_p1"] == "YELLOW"
+
+    def test_reads_responsiveness_dots(self):
+        if not os.path.exists(ODRIV_FILE):
+            return
+        from evaluation_engine import parse_odriv_from_excel
+        result = parse_odriv_from_excel(ODRIV_FILE)
+        # Maneuvering (10097800) has YELLOW resp_p1
+        maneuvering_ops = [o for o in result["operations"] if o["op_code"] == 10097800]
+        yellow_found = any(o["resp_p1"] == "YELLOW" for o in maneuvering_ops)
+        assert yellow_found
+
+    def test_white_dot_is_na(self):
+        if not os.path.exists(ODRIV_FILE):
+            return
+        from evaluation_engine import parse_odriv_from_excel
+        result = parse_odriv_from_excel(ODRIV_FILE)
+        # Accel Cst Load (10120200) has white resp dots -> N/A
+        op = next((o for o in result["operations"] if o["op_code"] == 10120200), None)
+        assert op is not None
+        assert op["resp_p1"] == "N/A"
+
+    def test_sections_parsed(self):
+        if not os.path.exists(ODRIV_FILE):
+            return
+        from evaluation_engine import parse_odriv_from_excel
+        result = parse_odriv_from_excel(ODRIV_FILE)
+        section_names = [s["name"] for s in result["sections"]]
+        assert len(section_names) >= 5
+        assert "Drive away" in section_names
+
+    def test_percentages_parsed(self):
+        if not os.path.exists(ODRIV_FILE):
+            return
+        from evaluation_engine import parse_odriv_from_excel
+        result = parse_odriv_from_excel(ODRIV_FILE)
+        op = next((o for o in result["operations"] if o["op_code"] == 10101300), None)
+        assert op is not None
+        assert op["driv_tested"] > 0
+        assert op["driv_target"] > 0
+
+    def test_missing_rating_sheet_returns_none(self):
+        """A workbook without RATING returns None."""
+        import tempfile
+        import openpyxl
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "OtherSheet"
+        ws["A1"] = "dummy"
+        tmp = tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False)
+        wb.save(tmp.name)
+        wb.close()
+        tmp.close()
+        from evaluation_engine import parse_odriv_from_excel
+        result = parse_odriv_from_excel(tmp.name)
+        assert result is None
+        os.unlink(tmp.name)

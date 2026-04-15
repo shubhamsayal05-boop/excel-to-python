@@ -31,6 +31,7 @@ from heatmap_engine import (
 from evaluation_engine import (
     parse_sheet1_data,
     parse_sheet1_from_excel,
+    parse_odriv_from_excel,
     evaluate_avl_status,
     build_overall_status,
     update_sub_operation_heatmap,
@@ -177,7 +178,11 @@ def sheet1_input_page():
     evaluation data with colored dot statuses.
 
     **Recommended:** Upload the Excel file directly so dot colors (green / yellow / red)
-    are read automatically. If pasting as text, encode dot colors as **G**, **Y**, **R**,
+    are read automatically.  You can upload either:
+    - The **AVL-DRIVE Heatmap Tool** Excel (reads from the *Sheet1* tab), or
+    - An **AVL-ODRIV** Excel file (reads from the *RATING* tab).
+
+    If pasting as text, encode dot colors as **G**, **Y**, **R**,
     or leave blank for N/A.
     """)
 
@@ -189,26 +194,34 @@ def sheet1_input_page():
 
     if input_method == "Upload Excel File (recommended)":
         uploaded_file = st.file_uploader(
-            "Upload the AVL-DRIVE Excel file (.xlsx / .xlsm):",
+            "Upload an AVL-DRIVE Heatmap Tool or ODRIV Excel file (.xlsx / .xlsm):",
             type=["xlsx", "xlsm"],
             key="sheet1_file",
         )
 
-        if uploaded_file and st.button("🔄 Process Sheet1 from Excel", key="process_sheet1_excel"):
-            with st.spinner("Reading Sheet1 and extracting dot colors..."):
+        if uploaded_file and st.button("🔄 Process Excel File", key="process_sheet1_excel"):
+            with st.spinner("Reading Excel file and extracting dot colors..."):
+                # Try Sheet1 first, then fall back to ODRIV RATING sheet
                 parsed = parse_sheet1_from_excel(uploaded_file)
+                source_label = "Sheet1"
+                if parsed is None:
+                    uploaded_file.seek(0)
+                    parsed = parse_odriv_from_excel(uploaded_file)
+                    source_label = "RATING"
             if parsed:
                 st.session_state["sheet1_data"] = parsed
                 st.success(
                     f"✅ Loaded {len(parsed['operations'])} operations in "
-                    f"{len(parsed['sections'])} sections.\n\n"
+                    f"{len(parsed['sections'])} sections "
+                    f"(from **{source_label}** sheet).\n\n"
                     f"**Target:** {parsed['target_car']}  |  "
                     f"**Tested:** {parsed['tested_car']}"
                 )
             else:
                 st.error(
-                    "❌ Could not parse Sheet1. Make sure the file contains a "
-                    "sheet named **Sheet1** with the expected layout."
+                    "❌ Could not parse the file. Make sure it contains either a "
+                    "**Sheet1** tab (Heatmap Tool) or a **RATING** tab (ODRIV) "
+                    "with the expected layout."
                 )
 
     else:

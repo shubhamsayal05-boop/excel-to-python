@@ -25,6 +25,17 @@ _DOT_COLOR_MAP = {
     "FF000000": "N/A",     # black text (sometimes in headers)
 }
 
+# Indexed-color map used by ODRIV RATING sheets (openpyxl COLOR_INDEX).
+_INDEXED_DOT_MAP = {
+    17: "GREEN",   # 00008000 – dark green
+    11: "GREEN",   # 0000FF00 – bright green
+    3:  "GREEN",   # 0000FF00 – bright green (alternate)
+    10: "RED",     # 00FF0000 – red
+    2:  "RED",     # 00FF0000 – red (alternate)
+    13: "YELLOW",  # 00FFFF00 – yellow
+    5:  "YELLOW",  # 00FFFF00 – yellow (alternate)
+}
+
 
 def parse_sheet1_data(text_input):
     """
@@ -288,6 +299,277 @@ def parse_sheet1_from_excel(file_obj):
             "resp_p3": _dot_status(ws.cell(row=row_idx, column=13)),
             "resp_tested": _to_float(ws.cell(row=row_idx, column=14).value),
             "resp_target": _to_float(ws.cell(row=row_idx, column=15).value),
+        }
+        operations.append(op_data)
+
+    wb.close()
+
+    if not operations:
+        return None
+
+    return {
+        "target_car": target_car,
+        "tested_car": tested_car,
+        "sections": sections,
+        "operations": operations,
+    }
+
+
+def parse_odriv_from_excel(file_obj):
+    """
+    Parse the RATING sheet from an AVL-ODRIV Excel (.xlsm) file.
+
+    The ODRIV RATING sheet has a different layout from the Heatmap Tool's
+    Sheet1.  This function reads the RATING sheet and produces the same
+    output dict as ``parse_sheet1_from_excel`` so that the rest of the
+    evaluation pipeline works unchanged.
+
+    Layout (column numbers are 1-based):
+
+    Row 2, col 4  : Tested vehicle (application) name
+    Row 20        : "Drivability" / "Responsiveness" section labels
+    Row 21        : Headers – "Current Status", vehicle names,
+                    "Driveability Index", "Responsiveness Index",
+                    "Drivability Lowest Events", "Responsiveness Lowest Events"
+    Row 22        : Sub-headers – "USE CASE", "P1", "P2", "P3"
+    Row 23+       : Data rows
+        Section headers : col 2 has name, col 3 is empty
+        Data rows       : col 3 has op-code, col 4 has op-name
+                          Driv P1/P2/P3 dots at offsets from first
+                          "Current Status", Resp P1/P2/P3 dots at second.
+                          Driv tested % at "Driveability Index" col,
+                          Resp tested % at "Responsiveness Index" col.
+                          Target vehicle % at the column immediately before
+                          "Drivability / Responsiveness Lowest Events".
+
+    Dot colors are stored as *indexed* colors (openpyxl COLOR_INDEX).
+
+    Args:
+        file_obj: file-like object for an .xlsm workbook containing a
+                  "RATING" sheet.
+
+    Returns:
+        Same dict as ``parse_sheet1_from_excel`` on success, or ``None``.
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(file_obj, data_only=False)
+    if "RATING" not in wb.sheetnames:
+        wb.close()
+        return None
+
+    ws = wb["RATING"]
+
+    # --- Locate key columns by scanning the header row (row 21) ---
+    driv_current_col = None   # first "Current Status" → Driv P1
+    resp_current_col = None   # second "Current Status" → Resp P1
+    driv_idx_col = None       # "Driveability Index" → tested driv %
+    resp_idx_col = None       # "Responsiveness Index" → tested resp %
+    driv_target_col = None    # col before "Drivability Lowest Events"
+    resp_target_col = None    # col before "Responsiveness Lowest Events"
+
+    for col_idx in range(1, ws.max_column + 1):
+        val = ws.cell(row=21, column=col_idx).value
+        if val is None:
+            continue
+        val_str = str(val).strip()
+        val_lower = val_str.lower()
+
+        if val_lower == "current status":
+            if driv_current_col is None:
+                driv_current_col = col_idx
+            else:
+                resp_current_col = col_idx
+
+        if "driveability index" in val_lower or "drivability index" in val_lower:
+            driv_idx_col = col_idx
+
+        if "responsiveness index" in val_lower:
+            resp_idx_col = col_idx
+
+        if "drivability lowest" in val_lower or "driveability lowest" in val_lower:
+            driv_target_col = col_idx - 1
+
+        if "responsiveness lowest" in val_lower:
+            resp_target_col = col_idx - 1
+
+    # Fallback: if we couldn't find all required columns, bail out
+    if driv_current_col is None:
+        wb.close()
+        return None
+
+    # Derive P1/P2/P3 offsets (P1 is at the "Current Status" col itself,
+    # P2 is +1, P3 is +2 – confirmed from row 22 sub-headers).
+    driv_p1_col = driv_current_col
+    driv_p2_col = driv_current_col + 1
+    driv_p3_col = driv_current_col + 2
+
+    resp_p1_col = resp_current_col if resp_current_col else None
+    resp_p2_col = (resp_current_col + 1) if resp_current_col else None
+    resp_p3_col = (resp_current_col + 2) if resp_current_col else None
+
+    # --- Vehicle names ---
+    # Row 2, col 4 often contains a formula (e.g. =HOME!Project); since we
+    # load with data_only=False the formula string is returned.  Fall back to
+    # reading the project name from the HOME sheet when available.
+    raw_tested = ws.cell(row=2, column=4).value
+    tested_car = ""
+    if raw_tested is not None:
+        tested_str = str(raw_tested).strip()
+        if not tested_str.startswith("="):
+            tested_car = tested_str
+    if not tested_car and "HOME" in wb.sheetnames:
+        home_val = wb["HOME"].cell(row=9, column=3).value
+        if home_val:
+            tested_car = str(home_val).strip()
+    if not tested_car:
+        tested_car = "Tested Vehicle"
+
+    target_car = "Target Vehicle"
+    if driv_target_col:
+        t = ws.cell(row=21, column=driv_target_col).value
+        if t:
+            target_car = str(t).strip()
+
+    # --- Helper: read dot color from a cell (indexed + rgb fallback) ---
+    def _odriv_dot(cell):
+        """Return GREEN / YELLOW / RED / N/A from a cell's font color."""
+        val = cell.value
+        if val is None:
+            return "N/A"
+        val_str = str(val).strip()
+        if val_str.upper() in ("G", "GREEN"):
+            return "GREEN"
+        if val_str.upper() in ("Y", "YELLOW"):
+            return "YELLOW"
+        if val_str.upper() in ("R", "RED"):
+            return "RED"
+        if val_str != "●":
+            return "N/A"
+        try:
+            fc = cell.font.color
+            if fc is None:
+                return "N/A"
+            if fc.type == "indexed" and fc.indexed is not None:
+                return _INDEXED_DOT_MAP.get(fc.indexed, "N/A")
+            if fc.type == "rgb":
+                rgb_str = str(fc.rgb)
+                # Try the direct map first (FFRRGGBB)
+                result = _DOT_COLOR_MAP.get(rgb_str)
+                if result:
+                    return result
+                # Strip alpha and compare
+                if len(rgb_str) == 8:
+                    core = rgb_str[2:]
+                    if core.upper() in ("008000", "00FF00"):
+                        return "GREEN"
+                    if core.upper() == "FF0000":
+                        return "RED"
+                    if core.upper() in ("FFFF00", "FFC000"):
+                        return "YELLOW"
+                    if core.upper() == "FFFFFF":
+                        return "N/A"
+                return "N/A"
+        except (AttributeError, TypeError):
+            pass
+        return "N/A"
+
+    # --- Walk data rows (starting from row 23 – right after the sub-header) ---
+    # Find the first data row by looking for "USE CASE" in row 22
+    data_start = 23
+    for r in range(20, 30):
+        cell_val = ws.cell(row=r, column=2).value
+        if cell_val and "USE CASE" in str(cell_val).upper():
+            data_start = r + 1
+            break
+
+    sections = []
+    operations = []
+    current_section = None
+
+    for row_idx in range(data_start, ws.max_row + 1):
+        col_b = ws.cell(row=row_idx, column=2).value   # section name
+        col_c = ws.cell(row=row_idx, column=3).value   # op code
+        col_d = ws.cell(row=row_idx, column=4).value   # op name
+
+        col_b_str = str(col_b).strip() if col_b is not None else ""
+        col_c_str = str(col_c).strip() if col_c is not None else ""
+        col_d_str = str(col_d).strip() if col_d is not None else ""
+
+        # Detect section header: col B has text but col C is empty
+        is_section = False
+        if col_b_str and not col_c_str and not col_d_str:
+            is_section = True
+        elif col_b_str and not col_c_str:
+            is_section = True
+
+        if is_section:
+            driv_tested_avg = _to_float(
+                ws.cell(row=row_idx, column=driv_idx_col).value if driv_idx_col else None
+            )
+            driv_target_avg = _to_float(
+                ws.cell(row=row_idx, column=driv_target_col).value if driv_target_col else None
+            )
+            resp_tested_avg = _to_float(
+                ws.cell(row=row_idx, column=resp_idx_col).value if resp_idx_col else None
+            )
+            resp_target_avg = _to_float(
+                ws.cell(row=row_idx, column=resp_target_col).value if resp_target_col else None
+            )
+            sections.append({
+                "name": col_b_str,
+                "driv_tested_avg": driv_tested_avg,
+                "driv_target_avg": driv_target_avg,
+                "resp_tested_avg": resp_tested_avg,
+                "resp_target_avg": resp_target_avg,
+            })
+            current_section = col_b_str
+            continue
+
+        # Data row — need either an op code in col C or an op name in col D
+        op_code = None
+        if col_c_str:
+            try:
+                op_code = int(col_c_str)
+            except (ValueError, TypeError):
+                pass
+
+        op_name = col_d_str
+
+        # If no op code but we have an op name, try looking it up
+        if op_code is None and op_name:
+            op_code = AVL_ODRIV_MAPPING.get(op_name)
+
+        if op_code is None and not op_name:
+            # Empty / unrecognised row — skip
+            continue
+
+        if op_code is None:
+            # Op name present but no code — still include with code 0
+            op_code = 0
+
+        op_data = {
+            "section": current_section,
+            "op_code": op_code,
+            "operation": op_name,
+            "driv_p1": _odriv_dot(ws.cell(row=row_idx, column=driv_p1_col)),
+            "driv_p2": _odriv_dot(ws.cell(row=row_idx, column=driv_p2_col)),
+            "driv_p3": _odriv_dot(ws.cell(row=row_idx, column=driv_p3_col)),
+            "driv_tested": _to_float(
+                ws.cell(row=row_idx, column=driv_idx_col).value if driv_idx_col else None
+            ),
+            "driv_target": _to_float(
+                ws.cell(row=row_idx, column=driv_target_col).value if driv_target_col else None
+            ),
+            "resp_p1": _odriv_dot(ws.cell(row=row_idx, column=resp_p1_col)) if resp_p1_col else "N/A",
+            "resp_p2": _odriv_dot(ws.cell(row=row_idx, column=resp_p2_col)) if resp_p2_col else "N/A",
+            "resp_p3": _odriv_dot(ws.cell(row=row_idx, column=resp_p3_col)) if resp_p3_col else "N/A",
+            "resp_tested": _to_float(
+                ws.cell(row=row_idx, column=resp_idx_col).value if resp_idx_col else None
+            ),
+            "resp_target": _to_float(
+                ws.cell(row=row_idx, column=resp_target_col).value if resp_target_col else None
+            ),
         }
         operations.append(op_data)
 
