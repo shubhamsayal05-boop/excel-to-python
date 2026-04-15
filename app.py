@@ -19,6 +19,7 @@ from config import (
     COLOR_BLUE_HEADER,
     OPERATION_MODE_MAPPING,
     AVL_ODRIV_MAPPING,
+    PARENT_OPERATION_CODES,
 )
 from heatmap_engine import (
     build_heatmap_template,
@@ -292,11 +293,12 @@ def heatmap_view_page():
     if "eval_results" in st.session_state and not st.session_state["eval_results"].empty:
         display_df = update_sub_operation_heatmap(display_df, st.session_state["eval_results"])
 
-    # Style the dataframe
-    st.subheader(f"HeatMap — Target: {target_vehicle or 'N/A'} | Tested: {tested_vehicle or 'N/A'}")
+    # Build the target vehicle label for the header
+    target_label = target_vehicle or "Target Vehicle"
 
-    styled_df = _style_heatmap(display_df)
-    st.dataframe(styled_df, use_container_width=True, height=800)
+    # Render the Excel-style HTML heatmap
+    html = _build_heatmap_html(display_df, vehicle_names, target_label)
+    st.markdown(html, unsafe_allow_html=True)
 
     # Export
     st.subheader("Export")
@@ -515,48 +517,223 @@ def help_page():
 # ============================================================================
 # Styling Helpers
 # ============================================================================
-def _style_heatmap(df):
-    """Apply color styling to heatmap DataFrame."""
-    def _color_status(val):
-        if pd.isna(val) or val == "":
-            return ""
-        val_upper = str(val).upper()
-        if val_upper == "GREEN":
-            return f"background-color: {COLOR_GREEN}; color: white"
-        elif val_upper == "YELLOW":
-            return f"background-color: {COLOR_YELLOW}; color: black"
-        elif val_upper == "RED":
-            return f"background-color: {COLOR_RED}; color: white"
+
+def _score_bg(val):
+    """Return (background, text-color) CSS pair for an AVL score cell."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return ("#FFFFFF", "#000000")
+    try:
+        v = float(val)
+    except (ValueError, TypeError):
+        return ("#FFFFFF", "#000000")
+    if v >= 8.0:
+        return (COLOR_GREEN, "#FFFFFF")
+    if v >= 7.0:
+        return (COLOR_YELLOW, "#000000")
+    if v > 0:
+        return (COLOR_RED, "#FFFFFF")
+    return ("#FFFFFF", "#000000")
+
+
+def _status_bg(val):
+    """Return (background, text-color) CSS pair for a status cell."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return ("#FFFFFF", "#000000")
+    v = str(val).upper().strip()
+    if v == "GREEN":
+        return (COLOR_GREEN, "#FFFFFF")
+    if v == "YELLOW":
+        return (COLOR_YELLOW, "#000000")
+    if v == "RED":
+        return (COLOR_RED, "#FFFFFF")
+    return ("#FFFFFF", "#000000")
+
+
+def _fmt_score(val):
+    """Format a score value for display."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
         return ""
+    try:
+        v = float(val)
+        # Display as integer if whole number, else one decimal
+        return str(int(v)) if v == int(v) else f"{v:.1f}"
+    except (ValueError, TypeError):
+        return str(val)
 
-    def _color_avl_score(val):
-        if pd.isna(val) or val == "" or val is None:
-            return ""
-        try:
-            v = float(val)
-            if v >= 8.0:
-                return f"background-color: {COLOR_GREEN}; color: white"
-            elif v >= 7.0:
-                return f"background-color: {COLOR_YELLOW}; color: black"
-            elif v > 0:
-                return f"background-color: {COLOR_RED}; color: white"
-        except (ValueError, TypeError):
-            pass
-        return ""
 
-    styled = df.style
+_html = __import__("html")
 
-    # Color the Status column
-    if "Status" in df.columns:
-        styled = styled.map(_color_status, subset=["Status"])
 
-    # Color vehicle score columns
-    vehicle_cols = [c for c in df.columns
-                   if c not in ("Op Code", "Operation Mode", "Status")]
-    if vehicle_cols:
-        styled = styled.map(_color_avl_score, subset=vehicle_cols)
+def _build_heatmap_html(df, vehicle_names, target_label):
+    """
+    Build an HTML table that replicates the exact look of the Excel HeatMap
+    Sheet.
 
-    return styled
+    Layout (matching the Excel):
+    ┌──────────┬──────────────────────────┬───┬─────────────┬───┬─────────────┬──────────┬──────────┐
+    │          │                          │   │Target Vehic.│   │             │          │          │
+    │          │ Operation Modes          │   │ Vehicle 1   │   │ Vehicle 2   │  Status  │ Comments │
+    │          │                          │   │ DR          │   │ DR          │          │          │
+    ├──────────┼──────────────────────────┼───┼─────────────┼───┼─────────────┼──────────┼──────────┤
+    │10000000  │ AVL-DRIVE Rating         │   │    8.3      │   │    8.2      │          │          │
+    │10100000  │ Drive away  (bold/shade) │   │    7.9      │   │    7.4      │          │          │
+    │10101300  │   Creep                  │   │    7.2      │   │    6.9      │          │          │
+    └──────────┴──────────────────────────┴───┴─────────────┴───┴─────────────┴──────────┴──────────┘
+    """
+    # Column A is very narrow (hidden) in Excel, but we show it small for reference
+    has_status = "Status" in df.columns
+
+    # Derive vehicle column names from the DataFrame
+    vehicle_cols = [c for c in df.columns if c not in ("Op Code", "Operation Mode", "Status")]
+
+    # --- CSS ---
+    css = """
+    <style>
+    .hm-wrap { overflow-x: auto; }
+    .hm-table {
+        border-collapse: collapse;
+        font-family: Arial, Calibri, sans-serif;
+        font-size: 12px;
+        width: 100%;
+        min-width: 600px;
+    }
+    .hm-table th, .hm-table td {
+        border: 1px solid #B4C6E7;
+        padding: 4px 8px;
+        white-space: nowrap;
+    }
+    /* Header rows */
+    .hm-hdr {
+        background-color: #4472C4;
+        color: #FFFFFF;
+        text-align: center;
+        font-weight: bold;
+    }
+    .hm-hdr-op {
+        background-color: #4472C4;
+        color: #FFFFFF;
+        text-align: left;
+        font-weight: bold;
+    }
+    /* Sub-header (DR row) */
+    .hm-sub {
+        background-color: #D9E1F2;
+        text-align: center;
+        font-size: 11px;
+    }
+    .hm-sub-op {
+        background-color: #D9E1F2;
+        text-align: left;
+        font-size: 11px;
+    }
+    /* Narrow separator column */
+    .hm-sep { width: 6px; min-width: 6px; max-width: 6px; padding: 0; background: #FFFFFF; border-left: none; border-right: none; }
+    /* Op Code column (narrow) */
+    .hm-code { text-align: left; font-size: 10px; color: #808080; width: 70px; }
+    /* Operation Mode column */
+    .hm-opname { text-align: left; min-width: 220px; }
+    /* Score cell */
+    .hm-score { text-align: center; min-width: 100px; font-size: 12px; }
+    /* Status cell */
+    .hm-status { text-align: center; min-width: 80px; font-weight: bold; }
+    /* Comments cell */
+    .hm-comments { text-align: left; min-width: 120px; }
+    /* Parent (bold group header) row */
+    .hm-parent td { font-weight: bold; }
+    .hm-parent .hm-opname { background-color: #D6DCE4; }
+    .hm-parent .hm-code { background-color: #D6DCE4; }
+    /* Target label row */
+    .hm-target { background-color: #4472C4; color: #FFFFFF; text-align: center; font-weight: bold; font-size: 11px; }
+    </style>
+    """
+
+    rows_html = []
+
+    # --- Row 1: "Target Vehicle" label spanning vehicle columns ---
+    # Only show if we know which is the target
+    n_vehicle_cols = len(vehicle_cols)
+    # Each vehicle takes 2 columns (separator + score) except the first which takes just 1 score col
+    # Total vehicle-related columns = n_vehicle_cols * 2 - 1  (separators between)
+    # But for simplicity: code col + op col + (sep + score) * n + status + comments
+
+    # Build header row 1: Target Vehicle label above the first vehicle column
+    r1 = '<tr>'
+    r1 += '<td class="hm-hdr" style="border:none;background:transparent;"></td>'  # Op Code
+    r1 += '<td class="hm-hdr" style="border:none;background:transparent;"></td>'  # Op Mode
+    for i, vname in enumerate(vehicle_cols):
+        r1 += '<td class="hm-sep"></td>'  # separator
+        if i == 0:
+            r1 += f'<td class="hm-target">Target Vehicle</td>'
+        else:
+            r1 += '<td style="border:none;background:transparent;"></td>'
+    if has_status:
+        r1 += '<td style="border:none;background:transparent;"></td>'
+        r1 += '<td style="border:none;background:transparent;"></td>'
+    r1 += '</tr>'
+    rows_html.append(r1)
+
+    # --- Row 2: Column headers with vehicle names ---
+    r2 = '<tr>'
+    r2 += '<td class="hm-hdr" style="width:70px;"></td>'
+    r2 += '<td class="hm-hdr-op">Operation Modes</td>'
+    for vname in vehicle_cols:
+        r2 += '<td class="hm-sep"></td>'
+        r2 += f'<td class="hm-hdr">{_html.escape(str(vname))}</td>'
+    if has_status:
+        r2 += f'<td class="hm-hdr">Status</td>'
+        r2 += f'<td class="hm-hdr">Comments</td>'
+    r2 += '</tr>'
+    rows_html.append(r2)
+
+    # --- Row 3: DR markers ---
+    r3 = '<tr>'
+    r3 += '<td class="hm-sub"></td>'
+    r3 += '<td class="hm-sub-op"></td>'
+    for _vname in vehicle_cols:
+        r3 += '<td class="hm-sep"></td>'
+        r3 += '<td class="hm-sub">DR</td>'
+    if has_status:
+        r3 += '<td class="hm-sub"></td>'
+        r3 += '<td class="hm-sub"></td>'
+    r3 += '</tr>'
+    rows_html.append(r3)
+
+    # --- Data rows ---
+    for _, row in df.iterrows():
+        op_code = row.get("Op Code", "")
+        op_name = row.get("Operation Mode", "")
+        is_parent = op_code in PARENT_OPERATION_CODES
+
+        tr_class = ' class="hm-parent"' if is_parent else ''
+        r = f'<tr{tr_class}>'
+        r += f'<td class="hm-code">{op_code}</td>'
+        r += f'<td class="hm-opname">{_html.escape(str(op_name))}</td>'
+
+        for vname in vehicle_cols:
+            val = row.get(vname)
+            bg, fc = _score_bg(val)
+            display = _fmt_score(val)
+            r += '<td class="hm-sep"></td>'
+            r += (
+                f'<td class="hm-score" style="background-color:{bg};color:{fc};">'
+                f'{display}</td>'
+            )
+
+        if has_status:
+            status_val = row.get("Status", "")
+            sbg, sfc = _status_bg(status_val)
+            status_display = str(status_val) if status_val and not (isinstance(status_val, float) and pd.isna(status_val)) else ""
+            r += (
+                f'<td class="hm-status" style="background-color:{sbg};color:{sfc};">'
+                f'{_html.escape(status_display)}</td>'
+            )
+            r += '<td class="hm-comments"></td>'
+
+        r += '</tr>'
+        rows_html.append(r)
+
+    table = f'{css}<div class="hm-wrap"><table class="hm-table">{"".join(rows_html)}</table></div>'
+    return table
 
 
 def _style_evaluation_results(df):

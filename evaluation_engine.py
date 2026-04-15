@@ -53,7 +53,7 @@ def parse_sheet1_data(text_input):
             'operations': list of dicts with operation data
             'raw_df': pd.DataFrame
     """
-    lines = [l for l in text_input.strip().split("\n") if l.strip()]
+    lines = [l for l in text_input.split("\n") if l.strip()]
     if len(lines) < 4:
         return None
 

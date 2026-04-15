@@ -194,6 +194,24 @@ HEATMAP_OPERATION_CODES = [
     10450000, 10451400, 10451500,
 ]
 
+# Parent (group header) operation codes – rendered bold with a shaded background
+# in the HeatMap Sheet.  All other codes are child (sub-operation) rows.
+PARENT_OPERATION_CODES = {
+    10100000,  # Drive away
+    10120000,  # Acceleration
+    10030000,  # Tip in
+    10040000,  # Tip out
+    10070000,  # Deceleration
+    10090000,  # Gear shift
+    10080000,  # Constant speed
+    10010000,  # Idle
+    10020000,  # Engine start
+    10140000,  # Engine shut off
+    10460000,  # TCC control
+    10430000,  # Cylinder deactivation
+    10450000,  # Vehicle stationary
+}
+
 # ============================================================================
 # Evaluation Thresholds
 # ============================================================================
