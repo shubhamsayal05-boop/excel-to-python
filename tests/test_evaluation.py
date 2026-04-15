@@ -193,6 +193,52 @@ class TestParseHeatmapData:
         assert parse_heatmap_data("") is None
         assert parse_heatmap_data("   ") is None
 
+    def test_separator_columns(self):
+        """Data Transfer Sheet format has empty separator columns between vehicles."""
+        text = (
+            "\tOperation Modes\tBYD Atto 3 BEV_NORMAL\t\tBYD_Dolphin Surf_BEV_NORMAL\n"
+            "\tOperation Modes\tDR\t\tDR\n"
+            "10000000\tAVL-DRIVE Rating\t8.3\t\t8.2\n"
+            "10100000\tDrive away\t7.9\t\t7.4\n"
+            "10120300\tLoad increase\t\t\t8.8\n"
+        )
+        result = parse_heatmap_data(text)
+        assert result is not None
+        assert result["vehicle_names"] == [
+            "BYD Atto 3 BEV_NORMAL",
+            "BYD_Dolphin Surf_BEV_NORMAL",
+        ]
+        df = result["data"]
+        assert len(df) == 3
+        # First row: both vehicles have scores
+        assert df.iloc[0]["BYD Atto 3 BEV_NORMAL"] == 8.3
+        assert df.iloc[0]["BYD_Dolphin Surf_BEV_NORMAL"] == 8.2
+        # Third row: only second vehicle has a score
+        assert pd.isna(df.iloc[2]["BYD Atto 3 BEV_NORMAL"])
+        assert df.iloc[2]["BYD_Dolphin Surf_BEV_NORMAL"] == 8.8
+
+    def test_multiple_separator_columns(self):
+        """Three vehicles each separated by empty columns."""
+        text = (
+            "\tOperation Modes\tVehicle A\t\tVehicle B\t\tVehicle C\n"
+            "\tOperation Modes\tDR\t\tDR\t\tDR\n"
+            "10000000\tAVL-DRIVE Rating\t8.3\t\t8.2\t\t7.5\n"
+        )
+        result = parse_heatmap_data(text)
+        assert result is not None
+        assert len(result["vehicle_names"]) == 3
+        assert result["data"].iloc[0]["Vehicle A"] == 8.3
+        assert result["data"].iloc[0]["Vehicle B"] == 8.2
+        assert result["data"].iloc[0]["Vehicle C"] == 7.5
+
+    def test_no_header_rows(self):
+        """Data rows only, no header or DR rows."""
+        text = "10000000\tAVL-DRIVE Rating\t8.3\t8.2\n10100000\tDrive away\t7.9\t7.4\n"
+        result = parse_heatmap_data(text)
+        assert result is not None
+        assert len(result["vehicle_names"]) == 2
+        assert len(result["data"]) == 2
+
 
 # ============================================================================
 # Tests for evaluate_avl_status
