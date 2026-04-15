@@ -516,27 +516,17 @@ def update_sub_operation_heatmap(heatmap_df, eval_results_df):
             parent_indices[pi + 1] if pi + 1 < len(parent_indices)
             else len(op_codes_in_order)
         )
-        child_statuses = []
+        # Build a list of pseudo-operation dicts so we can reuse
+        # calculate_group_status with the "final_status" key.
+        child_ops = []
         for ci in range(child_start, child_end):
             s = str(result.iat[ci, result.columns.get_loc("Status")]).upper()
             if s in ("GREEN", "YELLOW", "RED"):
-                child_statuses.append(s)
+                child_ops.append({"final_status": s})
 
-        if not child_statuses:
-            continue
-
-        red_count = child_statuses.count("RED")
-        yellow_count = child_statuses.count("YELLOW")
-        total = len(child_statuses)
-
-        if red_count > 0:
-            group_status = "NOK"
-        elif yellow_count / total > YELLOW_GROUP_THRESHOLD:
-            group_status = "Acceptable"
-        else:
-            group_status = "OK"
-
-        result.iat[parent_idx, result.columns.get_loc("Status")] = group_status
+        group_status = calculate_group_status(child_ops, "final_status")
+        if group_status:
+            result.iat[parent_idx, result.columns.get_loc("Status")] = group_status
 
     return result
 
