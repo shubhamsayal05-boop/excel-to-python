@@ -27,13 +27,13 @@ _DOT_COLOR_MAP = {
 
 # Indexed-color map used by ODRIV RATING sheets (openpyxl COLOR_INDEX).
 _INDEXED_DOT_MAP = {
-    17: "GREEN",   # 00008000 – dark green
-    11: "GREEN",   # 0000FF00 – bright green
-    3:  "GREEN",   # 0000FF00 – bright green (alternate)
-    10: "RED",     # 00FF0000 – red
-    2:  "RED",     # 00FF0000 – red (alternate)
-    13: "YELLOW",  # 00FFFF00 – yellow
-    5:  "YELLOW",  # 00FFFF00 – yellow (alternate)
+    17: "GREEN",   # 00008000 - dark green
+    11: "GREEN",   # 0000FF00 - bright green
+    3:  "GREEN",   # 0000FF00 - bright green (alternate)
+    10: "RED",     # 00FF0000 - red
+    2:  "RED",     # 00FF0000 - red (alternate)
+    13: "YELLOW",  # 00FFFF00 - yellow
+    5:  "YELLOW",  # 00FFFF00 - yellow (alternate)
 }
 
 
@@ -497,11 +497,7 @@ def parse_odriv_from_excel(file_obj):
         col_d_str = str(col_d).strip() if col_d is not None else ""
 
         # Detect section header: col B has text but col C is empty
-        is_section = False
-        if col_b_str and not col_c_str and not col_d_str:
-            is_section = True
-        elif col_b_str and not col_c_str:
-            is_section = True
+        is_section = bool(col_b_str and not col_c_str)
 
         if is_section:
             driv_tested_avg = _to_float(
