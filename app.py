@@ -335,6 +335,7 @@ def _recalculate_parent_statuses(df):
     """
     op_codes = df["Op Code"].tolist()
     parent_indices = [i for i, c in enumerate(op_codes) if c in PARENT_OPERATION_CODES]
+    status_col = df.columns.get_loc("Status")
 
     for pi, parent_idx in enumerate(parent_indices):
         child_start = parent_idx + 1
@@ -343,7 +344,7 @@ def _recalculate_parent_statuses(df):
         )
         child_ops = []
         for ci in range(child_start, child_end):
-            s = str(df.iat[ci, df.columns.get_loc("Status")]).upper()
+            s = str(df.iat[ci, status_col]).upper()
             # Treat BLUE (Bought Off) as GREEN for group calculation
             if s == "BLUE":
                 s = "GREEN"
@@ -351,7 +352,7 @@ def _recalculate_parent_statuses(df):
                 child_ops.append({"final_status": s})
         group_status = calculate_group_status(child_ops, "final_status")
         if group_status:
-            df.iat[parent_idx, df.columns.get_loc("Status")] = group_status
+            df.iat[parent_idx, status_col] = group_status
 
 
 def heatmap_view_page():
