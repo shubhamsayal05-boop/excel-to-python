@@ -1486,7 +1486,9 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details,
             code = erow.get("Op Code")
             avl_val = erow.get("Tested AVL")
             if code is not None and avl_val is not None:
-                # Keep the minimum AVL across duplicate op_code rows
+                # Keep the worst-case (minimum) AVL across duplicate op_code
+                # rows so that a low AVL on any tested vehicle triggers the
+                # AVL<7 comment.
                 existing = avl_lookup.get(code)
                 if existing is None or avl_val < existing:
                     avl_lookup[code] = avl_val
