@@ -1022,6 +1022,36 @@ def parse_odriv_detail_sheets(file_obj):
     return result
 
 
+# RGB values that should be treated as "no colour" even when patternType
+# is ``solid`` (white / fully transparent).
+_UNCOLORED_RGBS = frozenset({"00000000", "FFFFFFFF"})
+
+
+def _cell_has_color_fill(cell):
+    """Return ``True`` if *cell* has a visible background fill colour.
+
+    ODRIV detail sheets colour rated-criteria cells (red / yellow / green)
+    while leaving input-parameter cells uncoloured.  This function detects
+    whether a cell has a meaningful (non-white, non-transparent) solid fill.
+    """
+    fill = cell.fill
+    if fill.patternType != "solid":
+        return False
+    fg = fill.fgColor
+    if fg is None:
+        return False
+    if fg.type == "rgb" and fg.rgb:
+        return str(fg.rgb) not in _UNCOLORED_RGBS
+    if fg.type == "indexed" and fg.indexed is not None:
+        # Indexed colours 0 (black) and 64 (system window bg / white) are
+        # not meaningful rating colours.
+        return fg.indexed not in (0, 64)
+    if fg.type == "theme" and fg.theme is not None:
+        # Theme colour 0 is usually white in standard Office themes.
+        return fg.theme != 0
+    return False
+
+
 def _parse_detail_sheet(ws):
     """Parse a single ODRIV detail sheet and return a list of event dicts.
 
@@ -1170,16 +1200,22 @@ def _parse_detail_sheet(ws):
         # --- criteria & value ---
         if is_wide and wide_criteria_cols:
             # Wide format: find the criteria column with the lowest numeric
-            # score in this row and use its header as the criteria name.
+            # score in this row, considering **only** cells that have a
+            # coloured background fill (red / yellow / green).  Uncoloured
+            # cells are input parameters, not rated criteria.
             best_col = None
             best_val = None
             for c_col in wide_criteria_cols:
-                cv = ws.cell(row=row_idx, column=c_col).value
+                cell = ws.cell(row=row_idx, column=c_col)
+                cv = cell.value
                 if cv is None:
                     continue
                 try:
                     fv = float(str(cv))
                 except (ValueError, TypeError):
+                    continue
+                # Only consider cells with a meaningful fill colour.
+                if not _cell_has_color_fill(cell):
                     continue
                 if best_val is None or fv < best_val:
                     best_val = fv

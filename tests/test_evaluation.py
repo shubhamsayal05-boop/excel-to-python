@@ -912,7 +912,11 @@ class TestParseDetailSheetWideFormat:
     def test_wide_format_finds_worst_criteria(self):
         """Simulates ODRIV wide-format: criteria names as column headers."""
         import openpyxl
+        from openpyxl.styles import PatternFill
         from evaluation_engine import _parse_detail_sheet
+
+        green_fill = PatternFill(patternType="solid", fgColor="FF009926")
+        red_fill = PatternFill(patternType="solid", fgColor="FFF66E60")
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -931,11 +935,11 @@ class TestParseDetailSheetWideFormat:
         ws.cell(row=2, column=13, value=1)
         ws.cell(row=2, column=14, value=1)
         ws.cell(row=2, column=15, value="RED")
-        ws.cell(row=2, column=16, value=0)
-        ws.cell(row=2, column=20, value=8.3)
-        ws.cell(row=2, column=21, value=6.4)  # worst
-        ws.cell(row=2, column=22, value=9.3)
-        ws.cell(row=2, column=23, value=5.39)
+        ws.cell(row=2, column=16, value=0)        # Throttle: no fill
+        c = ws.cell(row=2, column=20, value=8.3);  c.fill = green_fill
+        c = ws.cell(row=2, column=21, value=6.4);  c.fill = red_fill   # worst
+        c = ws.cell(row=2, column=22, value=9.3);  c.fill = green_fill
+        ws.cell(row=2, column=23, value=5.39)      # Start time: no fill
         ws.cell(row=2, column=24, value="DriveAway_0%_Normal_Standard_BYD_Dolphin")
 
         events = _parse_detail_sheet(ws)
@@ -952,7 +956,10 @@ class TestParseDetailSheetWideFormat:
     def test_wide_format_start_time_not_criteria(self):
         """Start time of the Sub Event should NOT be detected as criteria."""
         import openpyxl
+        from openpyxl.styles import PatternFill
         from evaluation_engine import _parse_detail_sheet
+
+        red_fill = PatternFill(patternType="solid", fgColor="FFF66E60")
 
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -964,8 +971,8 @@ class TestParseDetailSheetWideFormat:
 
         ws.cell(row=2, column=14, value=1)
         ws.cell(row=2, column=15, value="RED")
-        ws.cell(row=2, column=20, value=6.0)
-        ws.cell(row=2, column=21, value=1.5)  # lower, but this is start time
+        c = ws.cell(row=2, column=20, value=6.0);  c.fill = red_fill
+        ws.cell(row=2, column=21, value=1.5)  # lower, but no fill
         ws.cell(row=2, column=22, value="TestFile_Normal_BYD")
 
         events = _parse_detail_sheet(ws)
@@ -976,3 +983,39 @@ class TestParseDetailSheetWideFormat:
         # Criteria should be "Brake release bump" not start time
         assert e["criteria"] == "Brake release bump"
         assert e["value"] == 6.0
+
+    def test_wide_format_ignores_uncolored_lower_value(self):
+        """Uncolored cells with lower values should be ignored."""
+        import openpyxl
+        from openpyxl.styles import PatternFill
+        from evaluation_engine import _parse_detail_sheet
+
+        green_fill = PatternFill(patternType="solid", fgColor="FF009926")
+        yellow_fill = PatternFill(patternType="solid", fgColor="FFCFE747")
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.cell(row=1, column=14, value="Event Priority")
+        ws.cell(row=1, column=15, value="Event Rating")
+        ws.cell(row=1, column=16, value="Throttle Position")
+        ws.cell(row=1, column=17, value="Front EM Speed")
+        ws.cell(row=1, column=20, value="Brake release bump")
+        ws.cell(row=1, column=21, value="Acceleration disturbances")
+        ws.cell(row=1, column=22, value="Acquisition Name")
+
+        ws.cell(row=2, column=14, value=1)
+        ws.cell(row=2, column=15, value="RED")
+        ws.cell(row=2, column=16, value=0)           # 0 is lower, but no fill
+        ws.cell(row=2, column=17, value=0)            # 0 is lower, but no fill
+        c = ws.cell(row=2, column=20, value=7.5);  c.fill = yellow_fill
+        c = ws.cell(row=2, column=21, value=8.0);  c.fill = green_fill
+        ws.cell(row=2, column=22, value="Test_File_BYD")
+
+        events = _parse_detail_sheet(ws)
+        wb.close()
+
+        assert len(events) >= 1
+        e = events[0]
+        # Should pick "Brake release bump" (7.5) not Throttle/EM Speed (0)
+        assert e["criteria"] == "Brake release bump"
+        assert e["value"] == 7.5
