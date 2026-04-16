@@ -29,6 +29,7 @@ from config import (
     COLOR_SHEET1_DOT_BG,
     COLOR_BLACK,
     COLOR_WHITE,
+    DOT_FONT_COLORS,
     OPERATION_MODE_MAPPING,
     AVL_ODRIV_MAPPING,
     PARENT_OPERATION_CODES,
@@ -39,6 +40,8 @@ from config import (
     SCORE_COLOR_MID,
     SCORE_COLOR_MAX,
 )
+
+COLOR_BLUE = DOT_FONT_COLORS["BLUE"]  # #99FBFB — Bought Off dot color
 from heatmap_engine import (
     build_heatmap_template,
     parse_heatmap_data,
@@ -323,6 +326,34 @@ def sheet1_input_page():
 # ============================================================================
 # Page: HeatMap
 # ============================================================================
+
+def _recalculate_parent_statuses(df):
+    """Recalculate parent (group header) statuses in-place.
+
+    Bought-off (BLUE) sub-operations are treated as GREEN for the purpose
+    of determining the parent group status.
+    """
+    op_codes = df["Op Code"].tolist()
+    parent_indices = [i for i, c in enumerate(op_codes) if c in PARENT_OPERATION_CODES]
+
+    for pi, parent_idx in enumerate(parent_indices):
+        child_start = parent_idx + 1
+        child_end = (
+            parent_indices[pi + 1] if pi + 1 < len(parent_indices) else len(op_codes)
+        )
+        child_ops = []
+        for ci in range(child_start, child_end):
+            s = str(df.iat[ci, df.columns.get_loc("Status")]).upper()
+            # Treat BLUE (Bought Off) as GREEN for group calculation
+            if s == "BLUE":
+                s = "GREEN"
+            if s in ("GREEN", "YELLOW", "RED"):
+                child_ops.append({"final_status": s})
+        group_status = calculate_group_status(child_ops, "final_status")
+        if group_status:
+            df.iat[parent_idx, df.columns.get_loc("Status")] = group_status
+
+
 def heatmap_view_page():
     st.header("🔥 HeatMap")
 
@@ -362,6 +393,47 @@ def heatmap_view_page():
     # Add status column if evaluation results exist
     if "eval_results" in st.session_state and not st.session_state["eval_results"].empty:
         display_df = update_sub_operation_heatmap(display_df, st.session_state["eval_results"])
+
+    # --- Bought Off feature ---
+    # Let the user mark sub-operation modes as "Bought Off" so their status
+    # dot turns blue (#99FBFB) instead of red.
+    if "Status" in display_df.columns:
+        sub_op_options = []
+        for _, row in display_df.iterrows():
+            if row["Op Code"] not in PARENT_OPERATION_CODES:
+                label = f"{row['Operation Mode']} ({row['Op Code']})"
+                sub_op_options.append((label, row["Op Code"]))
+
+        if sub_op_options:
+            st.markdown("---")
+            bo_col1, bo_col2 = st.columns([1, 3])
+            with bo_col1:
+                st.markdown("**🔵 Bought Off**")
+            with bo_col2:
+                bought_off_labels = st.multiselect(
+                    "Select sub-operation modes to mark as Bought Off:",
+                    options=[lbl for lbl, _ in sub_op_options],
+                    default=st.session_state.get("bought_off_labels", []),
+                    key="bought_off_select",
+                    help="Bought Off sub-operations will show a blue dot (●) on the heatmap.",
+                )
+            # Persist selection
+            st.session_state["bought_off_labels"] = bought_off_labels
+
+            # Map selected labels back to op codes
+            label_to_code = {lbl: code for lbl, code in sub_op_options}
+            bought_off_codes = {label_to_code[lbl] for lbl in bought_off_labels}
+
+            # Override status to BLUE for bought-off sub-operations
+            for idx, row in display_df.iterrows():
+                if row["Op Code"] in bought_off_codes:
+                    display_df.at[idx, "Status"] = "BLUE"
+
+            # Recalculate parent group statuses (treat BLUE as GREEN for grouping)
+            if bought_off_codes:
+                _recalculate_parent_statuses(display_df)
+
+            st.markdown("---")
 
     # Apply comments for RED status sub-operations.
     # Prefer comments from the dedicated Comment Generation page (red_comments)
@@ -987,11 +1059,12 @@ def _build_heatmap_html(df, vehicle_names, target_label):
                 )
             else:
                 # Sub-operation rows show a colored dot (●)
-                if status_upper in ("GREEN", "YELLOW", "RED"):
+                if status_upper in ("GREEN", "YELLOW", "RED", "BLUE"):
                     dot_color = {
                         "GREEN": COLOR_GREEN,
                         "YELLOW": COLOR_YELLOW,
                         "RED": COLOR_RED,
+                        "BLUE": COLOR_BLUE,
                     }[status_upper]
                     r += (
                         f'<td class="hm-status" style="background-color:#FFFFFF;">'
@@ -1199,11 +1272,12 @@ def _render_heatmap_image(df, vehicle_names, target_label):
                 draw_cell(cx, yd, STATUS_W, ROW_H, sbg, status_str, fc=sfc, bold=True)
             else:
                 draw_cell(cx, yd, STATUS_W, ROW_H, white_bg, "")
-                if status_upper in ("GREEN", "YELLOW", "RED"):
+                if status_upper in ("GREEN", "YELLOW", "RED", "BLUE"):
                     dot_color = _hex_to_rgb({
                         "GREEN": COLOR_GREEN,
                         "YELLOW": COLOR_YELLOW,
                         "RED": COLOR_RED,
+                        "BLUE": COLOR_BLUE,
                     }[status_upper])
                     dot_x = cx + STATUS_W / 2
                     dot_y = yd + ROW_H / 2
