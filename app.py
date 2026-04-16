@@ -64,8 +64,6 @@ st.set_page_config(
 
 def main():
     st.title("🚗 AVL-DRIVE Heatmap Tool")
-    st.markdown("**Python version** — Independent of Excel, fully replicating the "
-                "original AVL-DRIVE Heatmap Tool v5.1")
 
     # Sidebar navigation
     st.sidebar.title("Navigation")
