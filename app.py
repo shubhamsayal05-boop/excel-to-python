@@ -49,10 +49,12 @@ from evaluation_engine import (
     parse_sheet1_data,
     parse_sheet1_from_excel,
     parse_odriv_from_excel,
+    parse_odriv_detail_sheets,
     evaluate_avl_status,
     build_overall_status,
     update_sub_operation_heatmap,
     calculate_group_status,
+    generate_red_comments,
 )
 
 # ============================================================================
@@ -223,6 +225,18 @@ def sheet1_input_page():
                     uploaded_file.seek(0)
                     parsed = parse_odriv_from_excel(uploaded_file)
                     source_label = "RATING"
+
+                # Also parse operation-detail sub-sheets for auto-comment generation.
+                detail_msg = ""
+                uploaded_file.seek(0)
+                odriv_details = parse_odriv_detail_sheets(uploaded_file)
+                if odriv_details:
+                    st.session_state["odriv_details"] = odriv_details
+                    detail_msg = (
+                        f"  \n📝 Parsed **{len(odriv_details)}** detail sheet(s) "
+                        f"for auto-comment generation."
+                    )
+
             if parsed:
                 st.session_state["sheet1_data"] = parsed
                 st.success(
@@ -231,6 +245,7 @@ def sheet1_input_page():
                     f"(from **{source_label}** sheet).\n\n"
                     f"**Target:** {parsed['target_car']}  |  "
                     f"**Tested:** {parsed['tested_car']}"
+                    f"{detail_msg}"
                 )
             else:
                 st.error(
@@ -347,6 +362,22 @@ def heatmap_view_page():
     # Add status column if evaluation results exist
     if "eval_results" in st.session_state and not st.session_state["eval_results"].empty:
         display_df = update_sub_operation_heatmap(display_df, st.session_state["eval_results"])
+
+    # Auto-generate comments for RED status sub-operations.
+    if (
+        "odriv_details" in st.session_state
+        and "sheet1_data" in st.session_state
+        and "Status" in display_df.columns
+    ):
+        red_comments = generate_red_comments(
+            st.session_state["sheet1_data"],
+            display_df,
+            st.session_state["odriv_details"],
+        )
+        if red_comments:
+            display_df["Comments"] = display_df["Op Code"].map(
+                lambda x: red_comments.get(x, "")
+            )
 
     # Build the target vehicle label for the header
     target_label = target_vehicle or "Target Vehicle"
@@ -729,6 +760,19 @@ def _fmt_score(val):
         return str(val)
 
 
+def _comments_td(row, has_comments):
+    """Return the ``<td>`` for the Comments column of a heatmap HTML row."""
+    if has_comments:
+        comment_val = row.get("Comments", "")
+        comment_str = (
+            str(comment_val).strip()
+            if comment_val and not (isinstance(comment_val, float) and pd.isna(comment_val))
+            else ""
+        )
+        return f'<td class="hm-comments">{_html.escape(comment_str)}</td>'
+    return '<td class="hm-comments"></td>'
+
+
 def _build_heatmap_html(df, vehicle_names, target_label):
     """
     Build an HTML table that replicates the exact look of the Excel HeatMap
@@ -749,7 +793,8 @@ def _build_heatmap_html(df, vehicle_names, target_label):
     has_status = "Status" in df.columns
 
     # Derive vehicle column names from the DataFrame
-    vehicle_cols = [c for c in df.columns if c not in ("Op Code", "Operation Mode", "Status")]
+    vehicle_cols = [c for c in df.columns if c not in ("Op Code", "Operation Mode", "Status", "Comments")]
+    has_comments = "Comments" in df.columns
 
     # --- CSS --- (colors resolved from Excel HeatMap Sheet theme)
     css = f"""
@@ -915,7 +960,7 @@ def _build_heatmap_html(df, vehicle_names, target_label):
                     )
                 else:
                     r += '<td class="hm-status"></td>'
-            r += '<td class="hm-comments"></td>'
+            r += _comments_td(row, has_comments)
 
         r += '</tr>'
         rows_html.append(r)
@@ -942,7 +987,8 @@ def _render_heatmap_image(df, vehicle_names, target_label):
         A JPEG image of the full heatmap table.
     """
     has_status = "Status" in df.columns
-    vehicle_cols = [c for c in df.columns if c not in ("Op Code", "Operation Mode", "Status")]
+    has_comments = "Comments" in df.columns
+    vehicle_cols = [c for c in df.columns if c not in ("Op Code", "Operation Mode", "Status", "Comments")]
 
     # ----- Build cell data, colors, and widths -----
     # Column structure:  OpMode | sep | vehicle1 | sep | vehicle2 | ... | Status | Comments
@@ -952,11 +998,12 @@ def _render_heatmap_image(df, vehicle_names, target_label):
     OP_W = 2.8
     SEP_W = 0.06
     STATUS_W = 1.0
-    COMMENTS_W = 1.4
+    COMMENTS_W_MIN = 1.4
     ROW_H = 0.28
     HDR_H = 0.28
     FONT_SIZE = 8
     VEH_HDR_FONT = 7  # font size used for vehicle name headers
+    COMMENT_FONT = 6  # smaller font for comment text
 
     # Dynamically size vehicle columns based on name length so names are
     # never clipped.  Approximate width: ~0.075 inches per character at 7pt,
@@ -967,6 +1014,17 @@ def _render_heatmap_image(df, vehicle_names, target_label):
     for vname in vehicle_cols:
         needed = len(str(vname)) * CHAR_WIDTH_INCHES + 0.2  # 0.2 padding
         veh_col_widths.append(max(VEH_W_MIN, needed))
+
+    # Dynamically size the Comments column based on the longest comment.
+    COMMENTS_W = COMMENTS_W_MIN
+    if has_comments:
+        max_comment_len = max(
+            (len(str(v)) for v in df["Comments"] if v and not (isinstance(v, float) and pd.isna(v))),
+            default=0,
+        )
+        # ~0.055 inches per char at 6pt + padding
+        needed_cw = max_comment_len * 0.055 + 0.3
+        COMMENTS_W = max(COMMENTS_W_MIN, needed_cw)
 
     n_veh = len(vehicle_cols)
     col_widths = [OP_W]
@@ -1112,7 +1170,11 @@ def _render_heatmap_image(df, vehicle_names, target_label):
                     dot_y = yd + ROW_H / 2
                     ax.plot(dot_x, dot_y, "o", color=dot_color, markersize=6, clip_on=False)
             cx += STATUS_W
-            draw_cell(cx, yd, COMMENTS_W, ROW_H, white_bg, "")
+            comment_text = ""
+            if has_comments:
+                cv = row.get("Comments", "")
+                comment_text = str(cv).strip() if cv and not (isinstance(cv, float) and pd.isna(cv)) else ""
+            draw_cell(cx, yd, COMMENTS_W, ROW_H, white_bg, comment_text, align="left", fontsize=COMMENT_FONT)
 
     buf = io.BytesIO()
     fig.savefig(buf, format="jpeg", dpi=200, bbox_inches="tight", pad_inches=0.02)

@@ -628,3 +628,242 @@ class TestParseOdrivFromExcel:
         result = parse_odriv_from_excel(tmp.name)
         assert result is None
         os.unlink(tmp.name)
+
+
+# ============================================================================
+# Tests for _normalize_for_match
+# ============================================================================
+class TestNormalizeForMatch:
+    def test_basic_normalization(self):
+        from evaluation_engine import _normalize_for_match
+        assert _normalize_for_match("Drive Away") == "driveaway"
+        assert _normalize_for_match("Drive-Away") == "driveaway"
+        assert _normalize_for_match("Drive_Away") == "driveaway"
+
+    def test_empty_string(self):
+        from evaluation_engine import _normalize_for_match
+        assert _normalize_for_match("") == ""
+
+
+# ============================================================================
+# Tests for _match_sheet_to_operation
+# ============================================================================
+class TestMatchSheetToOperation:
+    def test_exact_match_section_hyphen_op(self):
+        from evaluation_engine import _match_sheet_to_operation
+        sheets = ["Driveaway-Creep", "Acceleration-ConstLoad", "TipIn"]
+        assert _match_sheet_to_operation(sheets, "Drive away", "Creep") == "Driveaway-Creep"
+
+    def test_section_underscore_op(self):
+        from evaluation_engine import _match_sheet_to_operation
+        sheets = ["Drive_away_Creep", "Other"]
+        assert _match_sheet_to_operation(sheets, "Drive away", "Creep") == "Drive_away_Creep"
+
+    def test_op_name_only_fallback(self):
+        from evaluation_engine import _match_sheet_to_operation
+        sheets = ["Creep", "Standing start"]
+        assert _match_sheet_to_operation(sheets, "Drive away", "Creep") == "Creep"
+
+    def test_no_match_returns_none(self):
+        from evaluation_engine import _match_sheet_to_operation
+        sheets = ["Acceleration", "TipIn"]
+        assert _match_sheet_to_operation(sheets, "Drive away", "Creep") is None
+
+    def test_empty_sheets_list(self):
+        from evaluation_engine import _match_sheet_to_operation
+        assert _match_sheet_to_operation([], "Drive away", "Creep") is None
+
+    def test_fuzzy_contains_section_and_op(self):
+        from evaluation_engine import _match_sheet_to_operation
+        sheets = ["DA_Driveaway_Creep_Details"]
+        assert _match_sheet_to_operation(sheets, "Drive away", "Creep") == "DA_Driveaway_Creep_Details"
+
+
+# ============================================================================
+# Tests for _extract_file_prefix
+# ============================================================================
+class TestExtractFilePrefix:
+    def test_typical_avl_filename(self):
+        from evaluation_engine import _extract_file_prefix
+        result = _extract_file_prefix(
+            "GS-RL_0%_Normal_Standard_BYD_Dolphin_Surf_BEV001_inca"
+        )
+        assert result == "GS_RL_0%"
+
+    def test_cold_stop_word(self):
+        from evaluation_engine import _extract_file_prefix
+        result = _extract_file_prefix("DASS_Eng_On_Cold_BYD_Atto3")
+        assert result == "DASS_Eng_On"
+
+    def test_empty_string(self):
+        from evaluation_engine import _extract_file_prefix
+        assert _extract_file_prefix("") == ""
+
+    def test_none_input(self):
+        from evaluation_engine import _extract_file_prefix
+        assert _extract_file_prefix(None) == ""
+
+    def test_no_stop_word(self):
+        from evaluation_engine import _extract_file_prefix
+        result = _extract_file_prefix("MyTest_123_456")
+        assert result == "MyTest_123_456"
+
+
+# ============================================================================
+# Tests for generate_red_comments
+# ============================================================================
+class TestGenerateRedComments:
+    def test_generates_comment_for_red_p1_driv(self):
+        from evaluation_engine import generate_red_comments
+
+        sheet1_data = {
+            "operations": [
+                {
+                    "op_code": 10101300,
+                    "operation": "Creep",
+                    "section": "Drive away",
+                    "driv_p1": "RED",
+                    "resp_p1": "N/A",
+                },
+            ],
+        }
+
+        odriv_details = {
+            "Driveaway-Creep": [
+                {
+                    "file": "GS-RL_0%_Normal_Standard_BYD_Dolphin",
+                    "criteria": "Brake Release Bump",
+                    "priority": 1,
+                    "rating": "Red",
+                    "value": 6.2,
+                },
+                {
+                    "file": "DASS_Normal_Standard_BYD_Dolphin",
+                    "criteria": "Jerk Peak",
+                    "priority": 1,
+                    "rating": "Red+",
+                    "value": 7.1,
+                },
+                {
+                    "file": "DASS_Normal_Standard_BYD_Dolphin",
+                    "criteria": "Smoothness",
+                    "priority": 2,
+                    "rating": "Red",
+                    "value": 5.0,
+                },
+            ],
+        }
+
+        heatmap_df = pd.DataFrame({"Op Code": [10101300], "Status": ["RED"]})
+        result = generate_red_comments(sheet1_data, heatmap_df, odriv_details)
+
+        assert 10101300 in result
+        comment = result[10101300]
+        assert "Red P1 Drivability" in comment
+        assert "Brake Release Bump" in comment
+        assert "GS_RL_0%" in comment
+
+    def test_no_comment_for_green_operation(self):
+        from evaluation_engine import generate_red_comments
+
+        sheet1_data = {
+            "operations": [
+                {
+                    "op_code": 10101300,
+                    "operation": "Creep",
+                    "section": "Drive away",
+                    "driv_p1": "GREEN",
+                    "resp_p1": "GREEN",
+                },
+            ],
+        }
+
+        odriv_details = {"Driveaway-Creep": []}
+        heatmap_df = pd.DataFrame({"Op Code": [10101300], "Status": ["GREEN"]})
+        result = generate_red_comments(sheet1_data, heatmap_df, odriv_details)
+        assert 10101300 not in result
+
+    def test_no_matching_sheet_still_records_reason(self):
+        from evaluation_engine import generate_red_comments
+
+        sheet1_data = {
+            "operations": [
+                {
+                    "op_code": 10101300,
+                    "operation": "Creep",
+                    "section": "Drive away",
+                    "driv_p1": "RED",
+                    "resp_p1": "N/A",
+                },
+            ],
+        }
+
+        odriv_details = {"SomeOtherSheet": []}
+        heatmap_df = pd.DataFrame({"Op Code": [10101300], "Status": ["RED"]})
+        result = generate_red_comments(sheet1_data, heatmap_df, odriv_details)
+        assert 10101300 in result
+        assert "Red P1 Drivability" in result[10101300]
+
+    def test_empty_odriv_details(self):
+        from evaluation_engine import generate_red_comments
+        result = generate_red_comments({"operations": []}, pd.DataFrame(), {})
+        assert result == {}
+
+    def test_none_inputs(self):
+        from evaluation_engine import generate_red_comments
+        assert generate_red_comments(None, pd.DataFrame(), {}) == {}
+        assert generate_red_comments({}, pd.DataFrame(), None) == {}
+
+    def test_picks_lowest_value_event(self):
+        from evaluation_engine import generate_red_comments
+
+        sheet1_data = {
+            "operations": [
+                {
+                    "op_code": 10101300,
+                    "operation": "Creep",
+                    "section": "Drive away",
+                    "driv_p1": "RED",
+                    "resp_p1": "N/A",
+                },
+            ],
+        }
+
+        odriv_details = {
+            "Driveaway-Creep": [
+                {"file": "File_A_Normal_X", "criteria": "CriteriaHigh", "priority": 1, "rating": "Red", "value": 8.0},
+                {"file": "File_B_Normal_X", "criteria": "CriteriaLow", "priority": 1, "rating": "Red", "value": 5.5},
+                {"file": "File_C_Normal_X", "criteria": "CriteriaMed", "priority": 1, "rating": "Red+", "value": 6.0},
+            ],
+        }
+
+        heatmap_df = pd.DataFrame({"Op Code": [10101300], "Status": ["RED"]})
+        result = generate_red_comments(sheet1_data, heatmap_df, odriv_details)
+        assert "CriteriaLow" in result[10101300]
+
+    def test_both_driv_and_resp_red(self):
+        from evaluation_engine import generate_red_comments
+
+        sheet1_data = {
+            "operations": [
+                {
+                    "op_code": 10101300,
+                    "operation": "Creep",
+                    "section": "Drive away",
+                    "driv_p1": "RED",
+                    "resp_p1": "RED",
+                },
+            ],
+        }
+
+        odriv_details = {
+            "Driveaway-Creep": [
+                {"file": "F_Normal_X", "criteria": "C1", "priority": 1, "rating": "Red", "value": 6.0},
+            ],
+        }
+
+        heatmap_df = pd.DataFrame({"Op Code": [10101300], "Status": ["RED"]})
+        result = generate_red_comments(sheet1_data, heatmap_df, odriv_details)
+        comment = result[10101300]
+        assert "Red P1 Drivability" in comment
+        assert "Red P1 Responsiveness" in comment

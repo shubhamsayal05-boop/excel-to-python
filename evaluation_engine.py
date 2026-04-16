@@ -965,3 +965,321 @@ def _combine_status(driv_status, resp_status):
 
     # Both N/A -> N/A
     return "N/A"
+
+
+# ============================================================================
+# ODRIV Detail Sheet Parsing & Auto-Comment Generation
+# ============================================================================
+
+# Sheets in the ODRIV workbook that are *not* operation-detail sheets.
+_SKIP_DETAIL_SHEETS = {
+    "RATING", "HOME", "Sheet1", "Mapping Sheet", "HeatMap Sheet",
+    "HeatMap Template", "Data Transfer Sheet", "AVL-Odriv Mapping",
+    "Evaluation Results", "Lists", "HOME ", "Info", "Configuration",
+}
+
+
+def parse_odriv_detail_sheets(file_obj):
+    """Parse event-level data from ODRIV operation-detail sub-sheets.
+
+    Each sub-sheet in the ODRIV workbook (other than RATING, HOME, etc.)
+    contains detailed event/criteria evaluations for a specific operation
+    mode.  The function scans each sheet for a header row containing columns
+    like ``Priority``, ``Event Rating``, ``Value``, ``File``, ``Criteria``,
+    and reads the data rows below.
+
+    Args:
+        file_obj: file-like object for an .xlsm workbook.
+
+    Returns:
+        dict: ``{sheet_name: [event_dict, ...]}`` where *event_dict* has
+        keys ``file``, ``criteria``, ``priority``, ``rating``, ``value``.
+        Only sheets where at least one event was successfully parsed are
+        included.
+    """
+    import openpyxl
+
+    wb = openpyxl.load_workbook(file_obj, data_only=True)
+
+    result = {}
+    for sheet_name in wb.sheetnames:
+        if sheet_name.strip() in _SKIP_DETAIL_SHEETS:
+            continue
+        ws = wb[sheet_name]
+        events = _parse_detail_sheet(ws)
+        if events:
+            result[sheet_name] = events
+
+    wb.close()
+    return result
+
+
+def _parse_detail_sheet(ws):
+    """Parse a single ODRIV detail sheet and return a list of event dicts.
+
+    The function scans the first 25 rows for a header row that contains
+    at least three of the following keywords: file/measurement, event/
+    criteria, priority, event rating/rating, value/score/dr.  It then
+    reads data rows below the header and returns a list of event dicts.
+    """
+    # Keyword families used to detect header columns.
+    _HEADER_KEYWORDS = {
+        "file": ("file", "measurement", "filename", "file name"),
+        "criteria": ("criteria", "event", "criterion", "event name"),
+        "priority": ("priority", "prio"),
+        "rating": ("event rating", "rating", "event_rating"),
+        "value": ("value", "score", "dr", "event value"),
+    }
+
+    header_row = None
+    col_map = {}
+
+    max_scan_row = min(ws.max_row or 1, 25)
+    max_scan_col = min(ws.max_column or 1, 60)
+
+    for row_idx in range(1, max_scan_row + 1):
+        row_vals = {}
+        for col_idx in range(1, max_scan_col + 1):
+            cell_val = ws.cell(row=row_idx, column=col_idx).value
+            if cell_val is not None:
+                row_vals[col_idx] = str(cell_val).strip().lower()
+
+        matches = {}
+        for key, keywords in _HEADER_KEYWORDS.items():
+            for col_idx, val in row_vals.items():
+                if any(kw in val for kw in keywords):
+                    if key not in matches:
+                        matches[key] = col_idx
+                        break
+
+        # Accept the row as a header if it contains at least 3 keyword matches.
+        if len(matches) >= 3:
+            header_row = row_idx
+            col_map = matches
+            break
+
+    if header_row is None:
+        return []
+
+    events = []
+    for row_idx in range(header_row + 1, (ws.max_row or header_row) + 1):
+        event = {}
+
+        if "file" in col_map:
+            v = ws.cell(row=row_idx, column=col_map["file"]).value
+            event["file"] = str(v).strip() if v else ""
+        else:
+            event["file"] = ""
+
+        if "criteria" in col_map:
+            v = ws.cell(row=row_idx, column=col_map["criteria"]).value
+            event["criteria"] = str(v).strip() if v else ""
+        else:
+            event["criteria"] = ""
+
+        if "priority" in col_map:
+            v = ws.cell(row=row_idx, column=col_map["priority"]).value
+            try:
+                event["priority"] = int(float(str(v)))
+            except (ValueError, TypeError):
+                event["priority"] = 0
+        else:
+            event["priority"] = 0
+
+        if "rating" in col_map:
+            v = ws.cell(row=row_idx, column=col_map["rating"]).value
+            event["rating"] = str(v).strip() if v else ""
+        else:
+            event["rating"] = ""
+
+        if "value" in col_map:
+            v = ws.cell(row=row_idx, column=col_map["value"]).value
+            try:
+                event["value"] = float(str(v))
+            except (ValueError, TypeError):
+                event["value"] = None
+        else:
+            event["value"] = None
+
+        # Skip empty / header-echo rows.
+        if not event["criteria"] and not event["file"] and event["priority"] == 0:
+            continue
+
+        events.append(event)
+
+    return events
+
+
+def _normalize_for_match(s):
+    """Lower-case a string and strip spaces, hyphens, underscores."""
+    return s.lower().replace(" ", "").replace("-", "").replace("_", "")
+
+
+def _match_sheet_to_operation(sheet_names, section, op_name):
+    """Find the best-matching detail sheet name for *section* + *op_name*.
+
+    Tries exact match first (e.g. ``"Driveaway-Creep"`` for section
+    ``"Drive away"`` and operation ``"Creep"``), then progressively
+    fuzzier matching.
+
+    Returns the matching sheet name, or ``None``.
+    """
+    if not sheet_names:
+        return None
+
+    candidates = []
+    if section and op_name:
+        candidates.append(f"{section}-{op_name}")
+        candidates.append(f"{section}_{op_name}")
+        candidates.append(f"{section} {op_name}")
+        short_section = section.replace(" ", "")
+        candidates.append(f"{short_section}-{op_name}")
+        candidates.append(f"{short_section}_{op_name}")
+    if op_name:
+        candidates.append(op_name)
+
+    # 1) Exact normalized match.
+    for sheet in sheet_names:
+        ns = _normalize_for_match(sheet)
+        for cand in candidates:
+            if _normalize_for_match(cand) == ns:
+                return sheet
+
+    # 2) Sheet name contains both section and operation.
+    if section and op_name:
+        norm_sec = _normalize_for_match(section)
+        norm_op = _normalize_for_match(op_name)
+        for sheet in sheet_names:
+            ns = _normalize_for_match(sheet)
+            if norm_sec in ns and norm_op in ns:
+                return sheet
+
+    # 3) Sheet name contains just the operation name.
+    if op_name:
+        norm_op = _normalize_for_match(op_name)
+        for sheet in sheet_names:
+            if norm_op in _normalize_for_match(sheet):
+                return sheet
+
+    return None
+
+
+def _extract_file_prefix(file_name):
+    """Extract the test-condition prefix from a measurement file name.
+
+    AVL-DRIVE file names typically follow the pattern::
+
+        {TestCondition}_{DriveMode}_{Standard}_{VehicleName}_{ID}_{Source}
+
+    e.g. ``GS-RL_0%_Normal_Standard_BYD_Dolphin_Surf_BEV001_inca``
+    → returns ``GS_RL_0%``.
+
+    The heuristic splits on ``_`` and stops at common keywords.
+    """
+    if not file_name:
+        return ""
+
+    # Normalise hyphens to underscores for consistency.
+    cleaned = file_name.replace("-", "_")
+    parts = cleaned.split("_")
+
+    stop_words = {
+        "normal", "cold", "hot", "standard", "sport", "eco",
+        "comfort", "byd", "bmw", "vw", "audi", "mercedes",
+        "porsche", "toyota", "honda", "ford", "inca", "concerto",
+    }
+
+    prefix_parts = []
+    for part in parts:
+        if part.lower() in stop_words:
+            break
+        prefix_parts.append(part)
+
+    return "_".join(prefix_parts) if prefix_parts else parts[0] if parts else ""
+
+
+def generate_red_comments(sheet1_data, heatmap_df, odriv_details):
+    """Auto-generate comments for sub-operations that have RED dot status.
+
+    For each sub-operation with RED P1 (Drivability or Responsiveness),
+    the function finds the corresponding ODRIV detail sheet, filters for
+    RED/Red+ P1 events, picks the one with the lowest score, and builds
+    a comment string.
+
+    Comment format::
+
+        Red P1 Drivability, {Criteria}, {FilePrefix}
+
+    Args:
+        sheet1_data: dict produced by ``parse_sheet1_data`` /
+                     ``parse_odriv_from_excel`` (must contain
+                     ``operations``).
+        heatmap_df:  DataFrame that already has a ``Status`` column
+                     (from ``update_sub_operation_heatmap``).
+        odriv_details: dict from ``parse_odriv_detail_sheets``.
+
+    Returns:
+        dict:  ``{op_code: comment_string}``  — only entries for ops
+        where a comment could be generated.
+    """
+    if not sheet1_data or not odriv_details:
+        return {}
+
+    operations = sheet1_data.get("operations", [])
+    sheet_names = list(odriv_details.keys())
+    comments = {}
+
+    for op in operations:
+        op_code = op.get("op_code")
+        driv_p1 = op.get("driv_p1", "N/A").upper()
+        resp_p1 = op.get("resp_p1", "N/A").upper()
+        section = op.get("section", "") or ""
+        op_name = op.get("operation", "") or ""
+
+        # Only generate for operations where P1 is RED.
+        if driv_p1 != "RED" and resp_p1 != "RED":
+            continue
+
+        # Determine the reason text.
+        reasons = []
+        if driv_p1 == "RED":
+            reasons.append("Red P1 Drivability")
+        if resp_p1 == "RED":
+            reasons.append("Red P1 Responsiveness")
+
+        # Find the matching detail sheet.
+        matched_sheet = _match_sheet_to_operation(sheet_names, section, op_name)
+        if matched_sheet is None:
+            # Still record the reason even without detail data.
+            comments[op_code] = ", ".join(reasons)
+            continue
+
+        events = odriv_details[matched_sheet]
+
+        # Filter: Priority == 1  AND  rating is Red / Red+.
+        red_p1_events = [
+            e for e in events
+            if e.get("priority") == 1
+            and e.get("rating", "").lower().startswith("red")
+            and e.get("value") is not None
+        ]
+
+        if not red_p1_events:
+            comments[op_code] = ", ".join(reasons)
+            continue
+
+        # Pick the event with the lowest score.
+        lowest = min(red_p1_events, key=lambda e: e["value"])
+
+        criteria = lowest.get("criteria", "")
+        file_prefix = _extract_file_prefix(lowest.get("file", ""))
+
+        parts = list(reasons)
+        if criteria:
+            parts.append(criteria)
+        if file_prefix:
+            parts.append(file_prefix)
+
+        comments[op_code] = ", ".join(parts)
+
+    return comments
