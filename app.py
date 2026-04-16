@@ -9,7 +9,11 @@ Usage:
 import html as _html
 import io
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import pandas as pd
+from PIL import Image as _PILImage
 import streamlit as st
 
 from config import (
@@ -400,8 +404,6 @@ def heatmap_view_page():
         )
     else:
         # Split: crop the full image into two parts using Pillow
-        from PIL import Image as _PILImage
-
         split_at = int(split_choice.split(":")[0].replace("After row ", ""))
         full_img = _PILImage.open(jpg_buf)
         w, h = full_img.size
@@ -939,11 +941,6 @@ def _render_heatmap_image(df, vehicle_names, target_label):
     io.BytesIO
         A JPEG image of the full heatmap table.
     """
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from matplotlib.patches import FancyBboxPatch
-
     has_status = "Status" in df.columns
     vehicle_cols = [c for c in df.columns if c not in ("Op Code", "Operation Mode", "Status")]
 
