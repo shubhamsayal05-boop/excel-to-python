@@ -933,8 +933,8 @@ class TestGenerateRedComments:
         assert 10101300 in result
         assert "AVL<7" in result[10101300]
 
-    def test_avl_below_7_with_red_p1_combines_reasons(self):
-        """When both AVL<7 and P1=RED, comment should include both reasons."""
+    def test_avl_below_7_with_red_p1_shows_only_p1_reason(self):
+        """When both AVL<7 and P1=RED, comment should only include P1 reason."""
         from evaluation_engine import generate_red_comments
 
         sheet1_data = {
@@ -963,7 +963,7 @@ class TestGenerateRedComments:
             eval_results_df=eval_results_df,
         )
         comment = result[10101300]
-        assert "AVL<7" in comment
+        assert "AVL<7" not in comment
         assert "Red P1 Drivability" in comment
 
     def test_avl_at_7_no_avl_comment(self):

@@ -1444,8 +1444,9 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details,
     RED/Red+ P1 events, picks the one with the lowest score, and builds
     a comment string.
 
-    When the RED status is caused by the tested AVL score being below the
-    threshold (< 7), the comment will include ``AVL<7`` as a reason.
+    When the RED status is caused **solely** by the tested AVL score being
+    below the threshold (< 7) — i.e. neither P1 is RED — the comment will
+    contain ``AVL<7``.  If P1 *is* RED, only the P1-based reason is shown.
 
     When the RED reason is **Responsiveness**, the function looks for a
     ``"<sheet>__resp"`` key in *odriv_details* (the Responsiveness section
@@ -1456,7 +1457,7 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details,
 
         Red P1 Drivability, {Criteria}, {FilePrefix}
 
-    or when AVL < 7::
+    or when AVL < 7 and P1 is not RED::
 
         AVL<7
 
@@ -1520,12 +1521,14 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details,
         # Collect comment parts for each RED reason.
         all_parts = []
 
-        # If AVL < threshold, add that as the first reason.
-        if avl_below:
+        has_p1_red = driv_p1 == "RED" or resp_p1 == "RED"
+
+        # If AVL < threshold and there is NO P1 RED, use AVL<7 as the reason.
+        if avl_below and not has_p1_red:
             all_parts.append("AVL<7")
 
         # Only look up ODRIV detail comments when we have detail data.
-        if odriv_details and (driv_p1 == "RED" or resp_p1 == "RED"):
+        if odriv_details and has_p1_red:
             # Find the matching detail sheet (base Drivability name).
             matched_sheet = _match_sheet_to_operation(
                 base_sheet_names, section, op_name
