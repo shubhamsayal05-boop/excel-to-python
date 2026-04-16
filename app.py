@@ -882,13 +882,17 @@ def _build_jpg_capture_html(heatmap_html, split_at_row=None):
     """Wrap heatmap HTML with html2canvas to auto-capture the table as JPG.
 
     When *split_at_row* is ``None`` the entire table is exported as one image.
-    When it is set to an integer **N** (1-based data-row index), the table is
-    split into two parts:
+    When it is set to an integer **N** (1-based data-row index), the full
+    table is rendered to a single canvas and then **pixel-cropped** into two
+    JPG images:
 
     * **Part 1** – header rows + data rows 1 … N
     * **Part 2** – header rows (repeated) + data rows N+1 … end
 
-    This mirrors the behaviour of Excel's "Export as image" button.
+    The canvas-cropping approach calls html2canvas only **once** on the
+    original table (which is already in the DOM), avoiding the previous
+    issue where cloned sub-tables appended to an off-screen container
+    caused html2canvas to hang indefinitely.
 
     Parameters
     ----------
@@ -897,9 +901,8 @@ def _build_jpg_capture_html(heatmap_html, split_at_row=None):
     split_at_row : int or None, optional
         1-based index of the last data row to include in Part 1.  This value
         is passed directly to the JavaScript as the ``SPLIT_AT`` variable and
-        used as ``dataRows.slice(0, SPLIT_AT)`` (i.e. the first *SPLIT_AT*
-        data rows go into Part 1).  ``None`` (default) exports the whole
-        table as a single JPG.
+        used as a row boundary for canvas cropping.  ``None`` (default)
+        exports the whole table as a single JPG.
     """
     # Convert None → 0 sentinel for the JS side (0 = no split)
     js_split = int(split_at_row) if split_at_row else 0
@@ -922,6 +925,7 @@ def _build_jpg_capture_html(heatmap_html, split_at_row=None):
 (function() {{
     // 1-based index of the last data row in Part 1.  0 = no split.
     var SPLIT_AT = {js_split};
+    var SCALE = 2;
     // Number of header rows in the table built by _build_heatmap_html:
     //   Row 1 – "Target Vehicle" / "Tested Vehicle" labels
     //   Row 2 – Column names (Operation Modes, vehicle names, Status, Comments)
@@ -951,7 +955,7 @@ def _build_jpg_capture_html(heatmap_html, split_at_row=None):
     function captureTable(tableEl) {{
         return html2canvas(tableEl, {{
             backgroundColor: '#FFFFFF',
-            scale: 2,
+            scale: SCALE,
             logging: false,
             useCORS: true,
             scrollX: 0,
@@ -965,18 +969,13 @@ def _build_jpg_capture_html(heatmap_html, split_at_row=None):
         }});
     }}
 
-    /* Build a sub-table containing *headerRows* + *dataRows* and append it
-       to *container* so html2canvas can render it. */
-    function buildPageTable(original, headerRows, dataRows, container) {{
-        var tbl = original.cloneNode(false);  // clone <table> tag only
-        for (var h = 0; h < headerRows.length; h++) {{
-            tbl.appendChild(headerRows[h].cloneNode(true));
-        }}
-        for (var d = 0; d < dataRows.length; d++) {{
-            tbl.appendChild(dataRows[d].cloneNode(true));
-        }}
-        container.appendChild(tbl);
-        return tbl;
+    /* Crop a region from *srcCanvas* and return a new canvas. */
+    function cropCanvas(srcCanvas, sx, sy, sw, sh) {{
+        var c = document.createElement('canvas');
+        c.width = sw;
+        c.height = sh;
+        c.getContext('2d').drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+        return c;
     }}
 
     window.addEventListener('load', function() {{
@@ -987,57 +986,64 @@ def _build_jpg_capture_html(heatmap_html, split_at_row=None):
                 return;
             }}
 
-            var allRows = Array.prototype.slice.call(table.querySelectorAll('tr'));
-            var headerRows = allRows.slice(0, HEADER_ROW_COUNT);
-            var dataRows   = allRows.slice(HEADER_ROW_COUNT);
-            var stamp = makeTimestamp();
             var statusEl = document.getElementById('status');
+            var stamp = makeTimestamp();
 
-            /* ---- No split: export the whole table as a single JPG ---- */
-            if (SPLIT_AT === 0 || SPLIT_AT >= dataRows.length) {{
-                captureTable(table).then(function(canvas) {{
-                    canvas.toBlob(function(blob) {{
+            /* ---- Always capture the full table once ---- */
+            statusEl.textContent = '⏳ Rendering table…';
+            captureTable(table).then(function(fullCanvas) {{
+                var allRows = Array.prototype.slice.call(table.querySelectorAll('tr'));
+                var dataRows = allRows.slice(HEADER_ROW_COUNT);
+
+                /* ---- No split: download the whole canvas ---- */
+                if (SPLIT_AT === 0 || SPLIT_AT >= dataRows.length) {{
+                    fullCanvas.toBlob(function(blob) {{
                         triggerDownload(blob, 'heatmap_' + stamp + '.jpg');
                         statusEl.textContent = '✅ JPG downloaded!';
                     }}, 'image/jpeg', 0.95);
-                }}).catch(function(err) {{
-                    statusEl.textContent = '❌ Error: ' + err.message;
-                }});
-                return;
-            }}
+                    return;
+                }}
 
-            /* ---- Split into two parts at the user-chosen row ---- */
-            var part1Rows = dataRows.slice(0, SPLIT_AT);
-            var part2Rows = dataRows.slice(SPLIT_AT);
+                /* ---- Split via canvas cropping ---- */
+                var tableRect = table.getBoundingClientRect();
 
-            var container = document.getElementById('capture-wrapper');
-            statusEl.textContent = '⏳ Generating Part 1 of 2…';
+                /* Pixel boundaries (CSS px, then × SCALE for canvas px) */
+                var lastHeaderRow = allRows[HEADER_ROW_COUNT - 1];
+                var headerBottomCSS = lastHeaderRow.getBoundingClientRect().bottom - tableRect.top;
 
-            var tbl1 = buildPageTable(table, headerRows, part1Rows, container);
-            setTimeout(function() {{
-                captureTable(tbl1).then(function(canvas1) {{
-                    canvas1.toBlob(function(blob1) {{
-                        triggerDownload(blob1, 'heatmap_' + stamp + '_part1.jpg');
-                        container.removeChild(tbl1);
+                var splitRow = allRows[HEADER_ROW_COUNT + SPLIT_AT - 1];
+                var splitBottomCSS = splitRow.getBoundingClientRect().bottom - tableRect.top;
 
-                        statusEl.textContent = '⏳ Generating Part 2 of 2…';
-                        var tbl2 = buildPageTable(table, headerRows, part2Rows, container);
-                        setTimeout(function() {{
-                            captureTable(tbl2).then(function(canvas2) {{
-                                canvas2.toBlob(function(blob2) {{
-                                    triggerDownload(blob2, 'heatmap_' + stamp + '_part2.jpg');
-                                    container.removeChild(tbl2);
-                                    statusEl.textContent = '✅ 2 JPGs downloaded!';
-                                }}, 'image/jpeg', 0.95);
-                            }}).catch(function(err) {{
-                                statusEl.textContent = '❌ Error on Part 2: ' + err.message;
-                            }});
-                        }}, 200);
+                var headerH = Math.round(headerBottomCSS * SCALE);
+                var splitY  = Math.round(splitBottomCSS * SCALE);
+                var fullW   = fullCanvas.width;
+                var fullH   = fullCanvas.height;
+
+                /* Part 1: top of table → bottom of split row */
+                statusEl.textContent = '⏳ Generating Part 1 of 2…';
+                var c1 = cropCanvas(fullCanvas, 0, 0, fullW, splitY);
+                c1.toBlob(function(blob1) {{
+                    triggerDownload(blob1, 'heatmap_' + stamp + '_part1.jpg');
+
+                    /* Part 2: header (repeated) + remaining data rows */
+                    statusEl.textContent = '⏳ Generating Part 2 of 2…';
+                    var remainH = fullH - splitY;
+                    var c2 = document.createElement('canvas');
+                    c2.width = fullW;
+                    c2.height = headerH + remainH;
+                    var ctx2 = c2.getContext('2d');
+                    /* Draw header area */
+                    ctx2.drawImage(fullCanvas, 0, 0, fullW, headerH, 0, 0, fullW, headerH);
+                    /* Draw remaining data rows */
+                    ctx2.drawImage(fullCanvas, 0, splitY, fullW, remainH, 0, headerH, fullW, remainH);
+                    c2.toBlob(function(blob2) {{
+                        triggerDownload(blob2, 'heatmap_' + stamp + '_part2.jpg');
+                        statusEl.textContent = '✅ 2 JPGs downloaded!';
                     }}, 'image/jpeg', 0.95);
-                }}).catch(function(err) {{
-                    statusEl.textContent = '❌ Error on Part 1: ' + err.message;
-                }});
-            }}, 200);
+                }}, 'image/jpeg', 0.95);
+            }}).catch(function(err) {{
+                statusEl.textContent = '❌ Error: ' + err.message;
+            }});
         }}, 500);
     }});
 }})();
