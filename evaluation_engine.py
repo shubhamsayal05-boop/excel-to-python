@@ -1022,16 +1022,16 @@ def parse_odriv_detail_sheets(file_obj):
     return result
 
 
-# RGB values that should be treated as "no colour" even when patternType
+# RGB values that should be treated as "no color" even when patternType
 # is ``solid`` (white / fully transparent).
 _UNCOLORED_RGBS = frozenset({"00000000", "FFFFFFFF"})
 
 
 def _cell_has_color_fill(cell):
-    """Return ``True`` if *cell* has a visible background fill colour.
+    """Return ``True`` if *cell* has a visible background fill color.
 
-    ODRIV detail sheets colour rated-criteria cells (red / yellow / green)
-    while leaving input-parameter cells uncoloured.  This function detects
+    ODRIV detail sheets color rated-criteria cells (red / yellow / green)
+    while leaving input-parameter cells uncolored.  This function detects
     whether a cell has a meaningful (non-white, non-transparent) solid fill.
     """
     fill = cell.fill
@@ -1043,11 +1043,11 @@ def _cell_has_color_fill(cell):
     if fg.type == "rgb" and fg.rgb:
         return str(fg.rgb) not in _UNCOLORED_RGBS
     if fg.type == "indexed" and fg.indexed is not None:
-        # Indexed colours 0 (black) and 64 (system window bg / white) are
-        # not meaningful rating colours.
+        # Indexed colors 0 (black) and 64 (system window bg / white) are
+        # not meaningful rating colors.
         return fg.indexed not in (0, 64)
     if fg.type == "theme" and fg.theme is not None:
-        # Theme colour 0 is usually white in standard Office themes.
+        # Theme color 0 is usually white in standard Office themes.
         return fg.theme != 0
     return False
 
