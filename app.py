@@ -80,7 +80,6 @@ def main():
             "📊 Odriv Data Input",
             "🔥 HeatMap",
             "📈 Run Evaluation And Result",
-            "💬 Comment Generation",
             "📖 Help & Reference",
         ],
     )
@@ -93,8 +92,6 @@ def main():
         heatmap_view_page()
     elif page == "📈 Run Evaluation And Result":
         evaluation_results_page()
-    elif page == "💬 Comment Generation":
-        comment_generation_page()
     elif page == "📖 Help & Reference":
         help_page()
 
@@ -575,129 +572,6 @@ def evaluation_results_page():
 
 
 # ============================================================================
-# Page: Comment Generation
-# ============================================================================
-def comment_generation_page():
-    st.header("💬 Comment Generation for RED Status")
-    st.markdown("""
-    Upload the **full ODRIV Excel file** (.xlsm) to auto-generate comments
-    for sub-operation modes that have a **RED dot** status.
-
-    The tool reads the detail sub-sheets (e.g. *Driveaway-Creep*,
-    *Acceleration-ConstLoad*, …) in the ODRIV workbook to find:
-    1. **RED P1 events** — Priority = 1 with Event Rating = Red or Red+
-    2. The event with the **lowest value** among those
-    3. The **criteria name** and **file / test-condition prefix**
-
-    Generated comment format: `Red P1 Drivability, <Criteria>, <FilePrefix>`
-    """)
-
-    # Prerequisites check
-    has_sheet1 = "sheet1_data" in st.session_state
-    has_eval = "eval_results" in st.session_state and not st.session_state["eval_results"].empty
-
-    if not has_sheet1:
-        st.warning(
-            "⚠️ No Odriv / Sheet1 data loaded. "
-            "Go to **Odriv Data Input** first to load the RATING data."
-        )
-    if not has_eval:
-        st.info(
-            "ℹ️ Run **Evaluation** first so the tool knows which "
-            "sub-operations have RED status."
-        )
-
-    # Upload full ODRIV file
-    st.subheader("Upload Full ODRIV File")
-    odriv_file = st.file_uploader(
-        "Upload the full ODRIV Excel file (.xlsm / .xlsx) with detail sheets:",
-        type=["xlsx", "xlsm"],
-        key="comment_odriv_file",
-    )
-
-    if odriv_file and st.button(
-        "🔄 Parse Detail Sheets & Generate Comments",
-        type="primary",
-        key="gen_comments_btn",
-    ):
-        with st.spinner("Parsing ODRIV detail sheets…"):
-            odriv_file.seek(0)
-            odriv_details = parse_odriv_detail_sheets(odriv_file)
-
-        if not odriv_details:
-            st.error(
-                "❌ No operation-detail sheets found in the uploaded file.\n\n"
-                "Make sure you are uploading the **full ODRIV workbook** "
-                "(not the Heatmap Tool). Detail sheets are named like "
-                "*Driveaway-Creep*, *Acceleration-ConstLoad*, etc."
-            )
-            return
-
-        st.session_state["odriv_details"] = odriv_details
-        st.success(
-            f"✅ Parsed **{len(odriv_details)}** detail sheet(s): "
-            + ", ".join(f"*{n}*" for n in list(odriv_details.keys())[:10])
-            + ("…" if len(odriv_details) > 10 else "")
-        )
-
-        # Show parsed sheets preview
-        with st.expander("📋 Parsed Detail Sheets Preview", expanded=False):
-            for sheet_name, events in odriv_details.items():
-                st.markdown(f"**{sheet_name}** — {len(events)} event(s)")
-                if events:
-                    preview = pd.DataFrame(events[:10])
-                    st.dataframe(preview, use_container_width=True)
-
-        # Generate comments if we have the data
-        if has_sheet1:
-            sheet1_data = st.session_state["sheet1_data"]
-            heatmap_df = st.session_state.get("heatmap_data", pd.DataFrame())
-            red_comments = generate_red_comments(
-                sheet1_data, heatmap_df, odriv_details
-            )
-
-            if red_comments:
-                st.session_state["red_comments"] = red_comments
-                st.success(
-                    f"✅ Generated comments for **{len(red_comments)}** "
-                    f"RED operation(s)."
-                )
-            else:
-                st.info(
-                    "ℹ️ No RED P1 operations found. "
-                    "Make sure the Odriv data has RED dot statuses."
-                )
-
-    # Display generated comments
-    if "red_comments" in st.session_state and st.session_state["red_comments"]:
-        red_comments = st.session_state["red_comments"]
-        st.subheader("Generated Comments")
-        st.markdown(
-            "These comments will automatically appear in the "
-            "**Comments** column on the **HeatMap** page."
-        )
-        comment_rows = []
-        for op_code, comment in red_comments.items():
-            op_name = OPERATION_MODE_MAPPING.get(op_code, str(op_code))
-            comment_rows.append({
-                "Op Code": op_code,
-                "Operation": op_name,
-                "Comment": comment,
-            })
-        comment_df = pd.DataFrame(comment_rows)
-        st.dataframe(comment_df, use_container_width=True)
-
-        # Allow CSV download of comments
-        csv = comment_df.to_csv(index=False)
-        st.download_button(
-            "📥 Download Comments as CSV",
-            csv,
-            "red_comments.csv",
-            "text/csv",
-        )
-
-
-# ============================================================================
 # Page: Help & Reference
 # ============================================================================
 def help_page():
@@ -783,28 +657,28 @@ def help_page():
         Data rows have op code in column B.
         """)
 
-    with st.expander("💬 Comment Generation", expanded=True):
+    with st.expander("💬 Auto-Comment Generation", expanded=True):
         st.markdown("""
-        ### Auto-generating Comments for RED Status
+        ### Auto-generated Comments for RED Status
 
-        After running the evaluation, go to the **💬 Comment Generation** page
-        and upload the **full ODRIV Excel file** (`.xlsm`).
+        When the **full ODRIV Excel file** (`.xlsm`) is uploaded on the
+        **Odriv Data Input** page, the tool automatically parses both the
+        **Drivability** and **Responsiveness** sections of each detail
+        sub-sheet and generates comments for sub-operations with RED P1
+        status.
 
-        The ODRIV file must contain **detail sub-sheets** for each operation
-        mode (e.g. *Driveaway-Creep*, *Acceleration-ConstLoad*).  Each
-        detail sheet should have columns like:
-        - **Priority** (1, 2, 3)
-        - **Event Rating** (Green, Yellow, Red, Red+)
-        - **Value** / **Score** / **DR** (numeric score)
-        - **Event** / **Criteria** (event name)
-        - **File** / **Measurement** (measurement file name)
+        For **RED P1 Drivability**, events are read from the left-side
+        (Drivability) section of the matching detail sheet.  For
+        **RED P1 Responsiveness**, events are read from the right-side
+        (Responsiveness) section.
 
-        The tool filters for **Priority = 1** and **Event Rating = Red or Red+**,
-        finds the event with the **lowest value**, and builds a comment:
+        The tool filters for **Priority = 1** and **Event Rating = Red or
+        Red+**, considers only **colored cells** (rated criteria), finds the
+        event with the **lowest value**, and builds a comment:
 
         `Red P1 Drivability, Brake Release Bump, GS_RL_0%`
 
-        Comments are then displayed in the **HeatMap** view under the
+        Comments are displayed in the **HeatMap** view under the
         *Comments* column.
         """)
 

@@ -860,13 +860,52 @@ class TestGenerateRedComments:
             "Driveaway-Creep": [
                 {"file": "F_Normal_X", "criteria": "C1", "priority": 1, "rating": "Red", "value": 6.0},
             ],
+            "Driveaway-Creep__resp": [
+                {"file": "F_Normal_Y", "criteria": "Response delay", "priority": 1, "rating": "Red", "value": 5.5},
+            ],
         }
 
         heatmap_df = pd.DataFrame({"Op Code": [10101300], "Status": ["RED"]})
         result = generate_red_comments(sheet1_data, heatmap_df, odriv_details)
         comment = result[10101300]
         assert "Red P1 Drivability" in comment
+        assert "C1" in comment
         assert "Red P1 Responsiveness" in comment
+        assert "Response delay" in comment
+
+    def test_resp_only_red_uses_resp_section(self):
+        """When only Responsiveness is RED, use the __resp detail data."""
+        from evaluation_engine import generate_red_comments
+
+        sheet1_data = {
+            "operations": [
+                {
+                    "op_code": 10101300,
+                    "operation": "Creep",
+                    "section": "Drive away",
+                    "driv_p1": "GREEN",
+                    "resp_p1": "RED",
+                },
+            ],
+        }
+
+        odriv_details = {
+            "Driveaway-Creep": [
+                {"file": "F_Driv", "criteria": "Bump", "priority": 1, "rating": "Red", "value": 6.0},
+            ],
+            "Driveaway-Creep__resp": [
+                {"file": "F_Resp", "criteria": "Response delay", "priority": 1, "rating": "Red", "value": 5.0},
+            ],
+        }
+
+        heatmap_df = pd.DataFrame({"Op Code": [10101300], "Status": ["RED"]})
+        result = generate_red_comments(sheet1_data, heatmap_df, odriv_details)
+        comment = result[10101300]
+        assert "Red P1 Responsiveness" in comment
+        assert "Response delay" in comment
+        # Should NOT include Drivability info
+        assert "Red P1 Drivability" not in comment
+        assert "Bump" not in comment
 
 
 # ============================================================================

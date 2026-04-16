@@ -987,6 +987,26 @@ _SKIP_DETAIL_SHEETS = {
 }
 
 
+def _find_resp_section_start(ws, max_scan_row=10):
+    """Return the column index where the Responsiveness section starts.
+
+    ODRIV v29+ detail sheets contain two side-by-side regions:
+    * **Drivability** (left, typically cols 1-50)
+    * **Responsiveness** (right, typically starting around col 60)
+
+    The Responsiveness section is identified by a cell containing
+    ``"RESPONSIVENESS SUMMARY"`` in the first few rows.  Returns the column
+    of that cell, or ``None`` if the sheet has no Responsiveness section.
+    """
+    max_col = min(ws.max_column or 1, 200)
+    for row_idx in range(1, max_scan_row + 1):
+        for col_idx in range(1, max_col + 1):
+            v = ws.cell(row=row_idx, column=col_idx).value
+            if v and "responsiveness summary" in str(v).lower():
+                return col_idx
+    return None
+
+
 def parse_odriv_detail_sheets(file_obj):
     """Parse event-level data from ODRIV operation-detail sub-sheets.
 
@@ -996,12 +1016,18 @@ def parse_odriv_detail_sheets(file_obj):
     like ``Priority``, ``Event Rating``, ``Value``, ``File``, ``Criteria``,
     and reads the data rows below.
 
+    ODRIV v29+ sheets contain **two side-by-side sections**: Drivability
+    (left) and Responsiveness (right).  Both are parsed separately.
+    Responsiveness events are stored under the key
+    ``"<sheet_name>__resp"``.
+
     Args:
         file_obj: file-like object for an .xlsm workbook.
 
     Returns:
         dict: ``{sheet_name: [event_dict, ...]}`` where *event_dict* has
         keys ``file``, ``criteria``, ``priority``, ``rating``, ``value``.
+        Responsiveness sections use key ``"<sheet_name>__resp"``.
         Only sheets where at least one event was successfully parsed are
         included.
     """
@@ -1014,9 +1040,22 @@ def parse_odriv_detail_sheets(file_obj):
         if sheet_name.strip() in _SKIP_DETAIL_SHEETS:
             continue
         ws = wb[sheet_name]
-        events = _parse_detail_sheet(ws)
+
+        # Detect Responsiveness section boundary so we can parse each
+        # half independently and avoid mixing up columns.
+        resp_start = _find_resp_section_start(ws)
+
+        # Parse the Drivability section (left side).
+        driv_col_end = (resp_start - 1) if resp_start else None
+        events = _parse_detail_sheet(ws, col_end=driv_col_end)
         if events:
             result[sheet_name] = events
+
+        # Parse the Responsiveness section (right side) if it exists.
+        if resp_start:
+            resp_events = _parse_detail_sheet(ws, col_start=resp_start)
+            if resp_events:
+                result[f"{sheet_name}__resp"] = resp_events
 
     wb.close()
     return result
@@ -1052,7 +1091,7 @@ def _cell_has_color_fill(cell):
     return False
 
 
-def _parse_detail_sheet(ws):
+def _parse_detail_sheet(ws, col_start=1, col_end=None):
     """Parse a single ODRIV detail sheet and return a list of event dicts.
 
     Supports two layout formats:
@@ -1066,6 +1105,12 @@ def _parse_detail_sheet(ws):
     this when it finds ``Event Priority`` + ``Event Rating`` headers but no
     single ``Criteria`` / ``Value`` column, and then identifies the criteria
     score columns automatically.
+
+    Args:
+        ws: openpyxl worksheet object.
+        col_start: first column index to scan (default 1).
+        col_end: last column index to scan (inclusive).  When ``None``,
+                 defaults to ``min(ws.max_column, 200)``.
     """
     # ------------------------------------------------------------------
     # Phase 1: locate the header row
@@ -1098,11 +1143,11 @@ def _parse_detail_sheet(ws):
     row_vals_at_header = {}
 
     max_scan_row = min(ws.max_row or 1, 25)
-    max_scan_col = min(ws.max_column or 1, 200)
+    max_scan_col = min(col_end or (ws.max_column or 1), 200)
 
     for row_idx in range(1, max_scan_row + 1):
         row_vals = {}
-        for col_idx in range(1, max_scan_col + 1):
+        for col_idx in range(col_start, max_scan_col + 1):
             cell_val = ws.cell(row=row_idx, column=col_idx).value
             if cell_val is not None:
                 row_vals[col_idx] = str(cell_val).strip().lower()
@@ -1398,6 +1443,11 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details):
     RED/Red+ P1 events, picks the one with the lowest score, and builds
     a comment string.
 
+    When the RED reason is **Responsiveness**, the function looks for a
+    ``"<sheet>__resp"`` key in *odriv_details* (the Responsiveness section
+    of the same sheet) and uses those events.  When the reason is
+    **Drivability**, the base ``"<sheet>"`` key is used.
+
     Comment format::
 
         Red P1 Drivability, {Criteria}, {FilePrefix}
@@ -1418,7 +1468,10 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details):
         return {}
 
     operations = sheet1_data.get("operations", [])
-    sheet_names = list(odriv_details.keys())
+    # Build separate lists: base sheet names (Drivability) and resp names.
+    base_sheet_names = [
+        k for k in odriv_details.keys() if not k.endswith("__resp")
+    ]
     comments = {}
 
     for op in operations:
@@ -1432,46 +1485,44 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details):
         if driv_p1 != "RED" and resp_p1 != "RED":
             continue
 
-        # Determine the reason text.
-        reasons = []
-        if driv_p1 == "RED":
-            reasons.append("Red P1 Drivability")
-        if resp_p1 == "RED":
-            reasons.append("Red P1 Responsiveness")
+        # Find the matching detail sheet (base Drivability name).
+        matched_sheet = _match_sheet_to_operation(
+            base_sheet_names, section, op_name
+        )
 
-        # Find the matching detail sheet.
-        matched_sheet = _match_sheet_to_operation(sheet_names, section, op_name)
-        if matched_sheet is None:
-            # Still record the reason even without detail data.
-            comments[op_code] = ", ".join(reasons)
-            continue
+        # Collect comment parts for each RED reason.
+        all_parts = []
 
-        events = odriv_details[matched_sheet]
+        for reason, is_red, detail_key in [
+            ("Red P1 Drivability", driv_p1 == "RED",
+             matched_sheet),
+            ("Red P1 Responsiveness", resp_p1 == "RED",
+             f"{matched_sheet}__resp" if matched_sheet else None),
+        ]:
+            if not is_red:
+                continue
 
-        # Filter: Priority == 1  AND  rating is Red / Red+.
-        red_p1_events = [
-            e for e in events
-            if e.get("priority") == 1
-            and str(e.get("rating", "")).lower().startswith("red")
-            and e.get("value") is not None
-        ]
+            parts = [reason]
 
-        if not red_p1_events:
-            comments[op_code] = ", ".join(reasons)
-            continue
+            # Try to enrich with criteria/file from the detail events.
+            events = odriv_details.get(detail_key, []) if detail_key else []
+            red_p1_events = [
+                e for e in events
+                if e.get("priority") == 1
+                and str(e.get("rating", "")).lower().startswith("red")
+                and e.get("value") is not None
+            ]
+            if red_p1_events:
+                lowest = min(red_p1_events, key=lambda e: e["value"])
+                criteria = lowest.get("criteria", "")
+                file_prefix = _extract_file_prefix(lowest.get("file", ""))
+                if criteria:
+                    parts.append(criteria)
+                if file_prefix:
+                    parts.append(file_prefix)
 
-        # Pick the event with the lowest score.
-        lowest = min(red_p1_events, key=lambda e: e["value"])
+            all_parts.append(", ".join(parts))
 
-        criteria = lowest.get("criteria", "")
-        file_prefix = _extract_file_prefix(lowest.get("file", ""))
-
-        parts = list(reasons)
-        if criteria:
-            parts.append(criteria)
-        if file_prefix:
-            parts.append(file_prefix)
-
-        comments[op_code] = ", ".join(parts)
+        comments[op_code] = " | ".join(all_parts)
 
     return comments
