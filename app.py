@@ -11,6 +11,7 @@ import io
 
 import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 
 from config import (
     STATUS_COLORS,
@@ -353,7 +354,7 @@ def heatmap_view_page():
 
     # Export
     st.subheader("Export")
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         csv = display_df.to_csv(index=False)
         st.download_button(
@@ -372,6 +373,12 @@ def heatmap_view_page():
             "heatmap_results.xlsx",
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
+    with col3:
+        jpg_clicked = st.button("📸 Download HeatMap as JPG")
+
+    if jpg_clicked:
+        capture_html = _build_jpg_capture_html(html)
+        components.html(capture_html, height=50)
 
 
 # ============================================================================
@@ -850,6 +857,68 @@ def _build_heatmap_html(df, vehicle_names, target_label):
 
     table = f'{css}<div class="hm-wrap"><table class="hm-table">{"".join(rows_html)}</table></div>'
     return table
+
+
+def _build_jpg_capture_html(heatmap_html):
+    """Wrap heatmap HTML with html2canvas to auto-capture the table as JPG."""
+    return f"""<!DOCTYPE html>
+<html>
+<head>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha384-njM16rDpD+s/COM24kTx5cDIeEJD7BqXc9EjoP6KDAdAm8YGtS+wGGyRyvE4s46F" crossorigin="anonymous"></script>
+</head>
+<body style="margin:0;padding:0;">
+<div id="capture-wrapper" style="position:fixed;left:-9999px;top:0;">
+{heatmap_html}
+</div>
+<p id="status" style="font-family:Arial,sans-serif;font-size:13px;color:#555;margin:4px;">
+⏳ Generating JPG, please wait…
+</p>
+<script>
+window.addEventListener('load', function() {{
+    setTimeout(function() {{
+        var table = document.querySelector('.hm-table');
+        if (!table) {{
+            document.getElementById('status').textContent = '❌ Table not found.';
+            return;
+        }}
+        html2canvas(table, {{
+            backgroundColor: '#FFFFFF',
+            scale: 2,
+            logging: false,
+            useCORS: true,
+            scrollX: 0,
+            scrollY: 0,
+            x: 0,
+            y: 0,
+            width: table.scrollWidth,
+            height: table.scrollHeight,
+            windowWidth: table.scrollWidth + 40,
+            windowHeight: table.scrollHeight + 40
+        }}).then(function(canvas) {{
+            canvas.toBlob(function(blob) {{
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                var now = new Date();
+                var stamp = now.getFullYear().toString()
+                    + ('0'+(now.getMonth()+1)).slice(-2)
+                    + ('0'+now.getDate()).slice(-2) + '_'
+                    + ('0'+now.getHours()).slice(-2)
+                    + ('0'+now.getMinutes()).slice(-2)
+                    + ('0'+now.getSeconds()).slice(-2);
+                a.download = 'heatmap_' + stamp + '.jpg';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                document.getElementById('status').textContent = '✅ JPG downloaded!';
+            }}, 'image/jpeg', 0.95);
+        }}).catch(function(err) {{
+            document.getElementById('status').textContent = '❌ Error: ' + err.message;
+        }});
+    }}, 500);
+}});
+</script>
+</body>
+</html>"""
 
 
 def _dot_html(status):
