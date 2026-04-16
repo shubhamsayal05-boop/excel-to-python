@@ -374,10 +374,29 @@ def heatmap_view_page():
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
     with col3:
+        # Let the user choose where to split the table for JPG export.
+        # Build a list of Operation Mode names so the user can pick the
+        # first row of Part 2 (the header is repeated automatically).
+        op_mode_names = display_df["Operation Mode"].astype(str).tolist()
+        split_options = ["No split (single image)"] + [
+            f"After row {i + 1}: {name}" for i, name in enumerate(op_mode_names)
+            if i < len(op_mode_names) - 1  # splitting after the last row is pointless
+        ]
+        split_choice = st.selectbox(
+            "Split JPG at:", split_options, index=0,
+            help="For large tables, choose a row to split the image into two parts. "
+                 "The header will be repeated in the second part.",
+        )
         jpg_clicked = st.button("📸 Download HeatMap as JPG")
 
     if jpg_clicked:
-        capture_html = _build_jpg_capture_html(html)
+        # Determine the split row index (1-based count of data rows in Part 1)
+        if split_choice == "No split (single image)":
+            split_at = None
+        else:
+            # "After row N: ..." → extract N
+            split_at = int(split_choice.split(":")[0].replace("After row ", ""))
+        capture_html = _build_jpg_capture_html(html, split_at_row=split_at)
         components.html(capture_html, height=50)
 
 
@@ -859,25 +878,32 @@ def _build_heatmap_html(df, vehicle_names, target_label):
     return table
 
 
-def _build_jpg_capture_html(heatmap_html, rows_per_page=50):
+def _build_jpg_capture_html(heatmap_html, split_at_row=None):
     """Wrap heatmap HTML with html2canvas to auto-capture the table as JPG.
 
-    For large tables the data rows are split into pages of *rows_per_page*
-    rows each.  The 3-row header (target/tested labels, column names, DR row)
-    is repeated at the top of every page so each image is self-contained –
-    just like the Excel "export as image" feature.
+    When *split_at_row* is ``None`` the entire table is exported as one image.
+    When it is set to an integer **N** (1-based data-row index), the table is
+    split into two parts:
 
-    Small tables (≤ rows_per_page data rows) are exported as a single JPG.
+    * **Part 1** – header rows + data rows 1 … N
+    * **Part 2** – header rows (repeated) + data rows N+1 … end
+
+    This mirrors the behaviour of Excel's "Export as image" button.
 
     Parameters
     ----------
     heatmap_html : str
         The full HTML string produced by ``_build_heatmap_html``.
-    rows_per_page : int, optional
-        Maximum number of data rows per JPG page (default 50).  The 3 header
-        rows (target/tested label row, column-name row, DR marker row) are
-        always prepended and do **not** count toward this limit.
+    split_at_row : int or None, optional
+        1-based index of the last data row to include in Part 1.  This value
+        is passed directly to the JavaScript as the ``SPLIT_AT`` variable and
+        used as ``dataRows.slice(0, SPLIT_AT)`` (i.e. the first *SPLIT_AT*
+        data rows go into Part 1).  ``None`` (default) exports the whole
+        table as a single JPG.
     """
+    # Convert None → 0 sentinel for the JS side (0 = no split)
+    js_split = int(split_at_row) if split_at_row else 0
+
     return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -894,7 +920,8 @@ def _build_jpg_capture_html(heatmap_html, rows_per_page=50):
 </p>
 <script>
 (function() {{
-    var ROWS_PER_PAGE = {rows_per_page};
+    // 1-based index of the last data row in Part 1.  0 = no split.
+    var SPLIT_AT = {js_split};
     // Number of header rows in the table built by _build_heatmap_html:
     //   Row 1 – "Target Vehicle" / "Tested Vehicle" labels
     //   Row 2 – Column names (Operation Modes, vehicle names, Status, Comments)
@@ -963,56 +990,54 @@ def _build_jpg_capture_html(heatmap_html, rows_per_page=50):
             var allRows = Array.prototype.slice.call(table.querySelectorAll('tr'));
             var headerRows = allRows.slice(0, HEADER_ROW_COUNT);
             var dataRows   = allRows.slice(HEADER_ROW_COUNT);
+            var stamp = makeTimestamp();
+            var statusEl = document.getElementById('status');
 
-            /* If the table is small enough, export as a single image */
-            if (dataRows.length <= ROWS_PER_PAGE) {{
+            /* ---- No split: export the whole table as a single JPG ---- */
+            if (SPLIT_AT === 0 || SPLIT_AT >= dataRows.length) {{
                 captureTable(table).then(function(canvas) {{
                     canvas.toBlob(function(blob) {{
-                        triggerDownload(blob, 'heatmap_' + makeTimestamp() + '.jpg');
-                        document.getElementById('status').textContent = '✅ JPG downloaded!';
+                        triggerDownload(blob, 'heatmap_' + stamp + '.jpg');
+                        statusEl.textContent = '✅ JPG downloaded!';
                     }}, 'image/jpeg', 0.95);
                 }}).catch(function(err) {{
-                    document.getElementById('status').textContent = '❌ Error: ' + err.message;
+                    statusEl.textContent = '❌ Error: ' + err.message;
                 }});
                 return;
             }}
 
-            /* Split into pages */
-            var pages = [];
-            for (var i = 0; i < dataRows.length; i += ROWS_PER_PAGE) {{
-                pages.push(dataRows.slice(i, i + ROWS_PER_PAGE));
-            }}
+            /* ---- Split into two parts at the user-chosen row ---- */
+            var part1Rows = dataRows.slice(0, SPLIT_AT);
+            var part2Rows = dataRows.slice(SPLIT_AT);
 
             var container = document.getElementById('capture-wrapper');
-            var stamp = makeTimestamp();
-            var totalPages = pages.length;
-            var statusEl = document.getElementById('status');
-            statusEl.textContent = '⏳ Generating page 1 of ' + totalPages + '…';
+            statusEl.textContent = '⏳ Generating Part 1 of 2…';
 
-            /* Process pages sequentially so the browser stays responsive */
-            var idx = 0;
-            function nextPage() {{
-                if (idx >= totalPages) {{
-                    statusEl.textContent = '✅ ' + totalPages + ' JPG(s) downloaded!';
-                    return;
-                }}
-                statusEl.textContent = '⏳ Generating page ' + (idx + 1) + ' of ' + totalPages + '…';
-                var pageTbl = buildPageTable(table, headerRows, pages[idx], container);
-                /* Small delay to let the DOM render before capture */
-                setTimeout(function() {{
-                    captureTable(pageTbl).then(function(canvas) {{
-                        canvas.toBlob(function(blob) {{
-                            triggerDownload(blob, 'heatmap_' + stamp + '_page' + (idx + 1) + '.jpg');
-                            container.removeChild(pageTbl);
-                            idx++;
-                            nextPage();
-                        }}, 'image/jpeg', 0.95);
-                    }}).catch(function(err) {{
-                        statusEl.textContent = '❌ Error on page ' + (idx + 1) + ': ' + err.message;
-                    }});
-                }}, 200);
-            }}
-            nextPage();
+            var tbl1 = buildPageTable(table, headerRows, part1Rows, container);
+            setTimeout(function() {{
+                captureTable(tbl1).then(function(canvas1) {{
+                    canvas1.toBlob(function(blob1) {{
+                        triggerDownload(blob1, 'heatmap_' + stamp + '_part1.jpg');
+                        container.removeChild(tbl1);
+
+                        statusEl.textContent = '⏳ Generating Part 2 of 2…';
+                        var tbl2 = buildPageTable(table, headerRows, part2Rows, container);
+                        setTimeout(function() {{
+                            captureTable(tbl2).then(function(canvas2) {{
+                                canvas2.toBlob(function(blob2) {{
+                                    triggerDownload(blob2, 'heatmap_' + stamp + '_part2.jpg');
+                                    container.removeChild(tbl2);
+                                    statusEl.textContent = '✅ 2 JPGs downloaded!';
+                                }}, 'image/jpeg', 0.95);
+                            }}).catch(function(err) {{
+                                statusEl.textContent = '❌ Error on Part 2: ' + err.message;
+                            }});
+                        }}, 200);
+                    }}, 'image/jpeg', 0.95);
+                }}).catch(function(err) {{
+                    statusEl.textContent = '❌ Error on Part 1: ' + err.message;
+                }});
+            }}, 200);
         }}, 500);
     }});
 }})();
