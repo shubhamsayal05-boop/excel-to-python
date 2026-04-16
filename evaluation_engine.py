@@ -1023,13 +1023,16 @@ def _parse_detail_sheet(ws):
     reads data rows below the header and returns a list of event dicts.
     """
     # Keyword families used to detect header columns.
-    _HEADER_KEYWORDS = {
-        "file": ("file", "measurement", "filename", "file name"),
-        "criteria": ("criteria", "event", "criterion", "event name"),
-        "priority": ("priority", "prio"),
-        "rating": ("event rating", "rating", "event_rating"),
-        "value": ("value", "score", "dr", "event value"),
-    }
+    # Order matters: more specific keys (rating) are matched before
+    # more generic ones (criteria) so that "Event Rating" is not
+    # accidentally captured by the "event" keyword in criteria.
+    _HEADER_KEYWORDS_ORDERED = [
+        ("rating", ("event rating", "event_rating", "eventrating", "rating")),
+        ("priority", ("priority", "prio")),
+        ("file", ("file", "measurement", "filename", "file name")),
+        ("value", ("value", "score", "event value", "dr")),
+        ("criteria", ("criteria", "criterion", "event name", "event")),
+    ]
 
     header_row = None
     col_map = {}
@@ -1045,11 +1048,15 @@ def _parse_detail_sheet(ws):
                 row_vals[col_idx] = str(cell_val).strip().lower()
 
         matches = {}
-        for key, keywords in _HEADER_KEYWORDS.items():
+        claimed_cols = set()
+        for key, keywords in _HEADER_KEYWORDS_ORDERED:
             for col_idx, val in row_vals.items():
+                if col_idx in claimed_cols:
+                    continue
                 if any(kw in val for kw in keywords):
                     if key not in matches:
                         matches[key] = col_idx
+                        claimed_cols.add(col_idx)
                         break
 
         # Accept the row as a header if it contains at least 3 keyword matches.

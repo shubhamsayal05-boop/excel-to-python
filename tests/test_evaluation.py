@@ -867,3 +867,40 @@ class TestGenerateRedComments:
         comment = result[10101300]
         assert "Red P1 Drivability" in comment
         assert "Red P1 Responsiveness" in comment
+
+
+# ============================================================================
+# Tests for _parse_detail_sheet header disambiguation
+# ============================================================================
+class TestParseDetailSheetHeaders:
+    """Ensure 'Event Rating' column is not stolen by the 'event' keyword in criteria."""
+
+    def test_event_rating_not_captured_as_criteria(self):
+        import openpyxl
+        from evaluation_engine import _parse_detail_sheet
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        # Header row: File | Event | Priority | Event Rating | DR
+        ws.cell(row=1, column=1, value="File")
+        ws.cell(row=1, column=2, value="Event")
+        ws.cell(row=1, column=3, value="Priority")
+        ws.cell(row=1, column=4, value="Event Rating")
+        ws.cell(row=1, column=5, value="DR")
+        # Data row
+        ws.cell(row=2, column=1, value="GS-RL_0%_Normal_BYD")
+        ws.cell(row=2, column=2, value="Brake Release Bump")
+        ws.cell(row=2, column=3, value=1)
+        ws.cell(row=2, column=4, value="Red")
+        ws.cell(row=2, column=5, value=6.2)
+
+        events = _parse_detail_sheet(ws)
+        wb.close()
+
+        assert len(events) == 1
+        e = events[0]
+        assert e["criteria"] == "Brake Release Bump"
+        assert e["rating"] == "Red"
+        assert e["value"] == 6.2
+        assert e["priority"] == 1
+        assert "GS-RL_0%" in e["file"]
