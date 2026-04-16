@@ -907,6 +907,109 @@ class TestGenerateRedComments:
         assert "Red P1 Drivability" not in comment
         assert "Bump" not in comment
 
+    def test_avl_below_7_adds_comment(self):
+        """When AVL < 7 causes RED status, 'AVL<7' should appear in comment."""
+        from evaluation_engine import generate_red_comments
+
+        sheet1_data = {
+            "operations": [
+                {
+                    "op_code": 10101300,
+                    "operation": "Drive away",
+                    "section": "Drive away",
+                    "driv_p1": "GREEN",
+                    "resp_p1": "GREEN",
+                },
+            ]
+        }
+        heatmap_df = pd.DataFrame()
+        eval_results_df = pd.DataFrame([
+            {"Op Code": 10101300, "Tested AVL": 5.5},
+        ])
+        result = generate_red_comments(
+            sheet1_data, heatmap_df, None,
+            eval_results_df=eval_results_df,
+        )
+        assert 10101300 in result
+        assert "AVL<7" in result[10101300]
+
+    def test_avl_below_7_with_red_p1_combines_reasons(self):
+        """When both AVL<7 and P1=RED, comment should include both reasons."""
+        from evaluation_engine import generate_red_comments
+
+        sheet1_data = {
+            "operations": [
+                {
+                    "op_code": 10101300,
+                    "operation": "Drive away",
+                    "section": "Drive away",
+                    "driv_p1": "RED",
+                    "resp_p1": "GREEN",
+                },
+            ]
+        }
+        heatmap_df = pd.DataFrame()
+        odriv_details = {
+            "Drive away": [
+                {"file": "F_Normal_X", "criteria": "Bump", "priority": 1,
+                 "rating": "Red", "value": 6.0},
+            ]
+        }
+        eval_results_df = pd.DataFrame([
+            {"Op Code": 10101300, "Tested AVL": 6.0},
+        ])
+        result = generate_red_comments(
+            sheet1_data, heatmap_df, odriv_details,
+            eval_results_df=eval_results_df,
+        )
+        comment = result[10101300]
+        assert "AVL<7" in comment
+        assert "Red P1 Drivability" in comment
+
+    def test_avl_at_7_no_avl_comment(self):
+        """When AVL == 7 (exactly at threshold), no 'AVL<7' comment."""
+        from evaluation_engine import generate_red_comments
+
+        sheet1_data = {
+            "operations": [
+                {
+                    "op_code": 10101300,
+                    "operation": "Drive away",
+                    "section": "Drive away",
+                    "driv_p1": "GREEN",
+                    "resp_p1": "GREEN",
+                },
+            ]
+        }
+        eval_results_df = pd.DataFrame([
+            {"Op Code": 10101300, "Tested AVL": 7.0},
+        ])
+        result = generate_red_comments(
+            sheet1_data, pd.DataFrame(), None,
+            eval_results_df=eval_results_df,
+        )
+        assert 10101300 not in result
+
+    def test_avl_below_7_no_eval_results(self):
+        """Without eval_results_df, AVL<7 comments are not generated."""
+        from evaluation_engine import generate_red_comments
+
+        sheet1_data = {
+            "operations": [
+                {
+                    "op_code": 10101300,
+                    "operation": "Drive away",
+                    "section": "Drive away",
+                    "driv_p1": "GREEN",
+                    "resp_p1": "GREEN",
+                },
+            ]
+        }
+        result = generate_red_comments(
+            sheet1_data, pd.DataFrame(), None,
+        )
+        assert 10101300 not in result
+
 
 # ============================================================================
 # Tests for _parse_detail_sheet header disambiguation

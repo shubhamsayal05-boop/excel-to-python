@@ -1435,13 +1435,17 @@ def _extract_file_prefix(file_name):
     return ""
 
 
-def generate_red_comments(sheet1_data, heatmap_df, odriv_details):
+def generate_red_comments(sheet1_data, heatmap_df, odriv_details,
+                          eval_results_df=None):
     """Auto-generate comments for sub-operations that have RED dot status.
 
     For each sub-operation with RED P1 (Drivability or Responsiveness),
     the function finds the corresponding ODRIV detail sheet, filters for
     RED/Red+ P1 events, picks the one with the lowest score, and builds
     a comment string.
+
+    When the RED status is caused by the tested AVL score being below the
+    threshold (< 7), the comment will include ``AVL<7`` as a reason.
 
     When the RED reason is **Responsiveness**, the function looks for a
     ``"<sheet>__resp"`` key in *odriv_details* (the Responsiveness section
@@ -1452,6 +1456,10 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details):
 
         Red P1 Drivability, {Criteria}, {FilePrefix}
 
+    or when AVL < 7::
+
+        AVL<7
+
     Args:
         sheet1_data: dict produced by ``parse_sheet1_data`` /
                      ``parse_odriv_from_excel`` (must contain
@@ -1459,19 +1467,35 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details):
         heatmap_df:  DataFrame that already has a ``Status`` column
                      (from ``update_sub_operation_heatmap``).
         odriv_details: dict from ``parse_odriv_detail_sheets``.
+        eval_results_df: optional DataFrame from ``evaluate_avl_status``
+                         containing ``Op Code`` and ``Tested AVL`` columns.
 
     Returns:
         dict:  ``{op_code: comment_string}``  — only entries for ops
         where a comment could be generated.
     """
-    if not sheet1_data or not odriv_details:
+    if not sheet1_data:
         return {}
 
     operations = sheet1_data.get("operations", [])
+
+    # Build a lookup of op_code -> tested AVL from eval results.
+    avl_lookup = {}
+    if eval_results_df is not None and not eval_results_df.empty:
+        for _, erow in eval_results_df.iterrows():
+            code = erow.get("Op Code")
+            avl_val = erow.get("Tested AVL")
+            if code is not None and avl_val is not None:
+                # Keep the minimum AVL across duplicate op_code rows
+                existing = avl_lookup.get(code)
+                if existing is None or avl_val < existing:
+                    avl_lookup[code] = avl_val
+
     # Build separate lists: base sheet names (Drivability) and resp names.
-    base_sheet_names = [
-        k for k in odriv_details.keys() if not k.endswith("__resp")
-    ]
+    base_sheet_names = (
+        [k for k in odriv_details.keys() if not k.endswith("__resp")]
+        if odriv_details else []
+    )
     comments = {}
 
     for op in operations:
@@ -1481,48 +1505,61 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details):
         section = op.get("section", "") or ""
         op_name = op.get("operation", "") or ""
 
-        # Only generate for operations where P1 is RED.
-        if driv_p1 != "RED" and resp_p1 != "RED":
-            continue
-
-        # Find the matching detail sheet (base Drivability name).
-        matched_sheet = _match_sheet_to_operation(
-            base_sheet_names, section, op_name
+        # Check if AVL < threshold for this operation.
+        tested_avl = avl_lookup.get(op_code)
+        avl_below = (
+            tested_avl is not None and tested_avl < AVL_THRESHOLD
         )
+
+        # Only generate for operations where P1 is RED or AVL < threshold.
+        if driv_p1 != "RED" and resp_p1 != "RED" and not avl_below:
+            continue
 
         # Collect comment parts for each RED reason.
         all_parts = []
 
-        for reason, is_red, detail_key in [
-            ("Red P1 Drivability", driv_p1 == "RED",
-             matched_sheet),
-            ("Red P1 Responsiveness", resp_p1 == "RED",
-             f"{matched_sheet}__resp" if matched_sheet else None),
-        ]:
-            if not is_red:
-                continue
+        # If AVL < threshold, add that as the first reason.
+        if avl_below:
+            all_parts.append("AVL<7")
 
-            parts = [reason]
+        # Only look up ODRIV detail comments when we have detail data.
+        if odriv_details and (driv_p1 == "RED" or resp_p1 == "RED"):
+            # Find the matching detail sheet (base Drivability name).
+            matched_sheet = _match_sheet_to_operation(
+                base_sheet_names, section, op_name
+            )
 
-            # Try to enrich with criteria/file from the detail events.
-            events = odriv_details.get(detail_key, []) if detail_key else []
-            red_p1_events = [
-                e for e in events
-                if e.get("priority") == 1
-                and str(e.get("rating", "")).lower().startswith("red")
-                and e.get("value") is not None
-            ]
-            if red_p1_events:
-                lowest = min(red_p1_events, key=lambda e: e["value"])
-                criteria = lowest.get("criteria", "")
-                file_prefix = _extract_file_prefix(lowest.get("file", ""))
-                if criteria:
-                    parts.append(criteria)
-                if file_prefix:
-                    parts.append(file_prefix)
+            for reason, is_red, detail_key in [
+                ("Red P1 Drivability", driv_p1 == "RED",
+                 matched_sheet),
+                ("Red P1 Responsiveness", resp_p1 == "RED",
+                 f"{matched_sheet}__resp" if matched_sheet else None),
+            ]:
+                if not is_red:
+                    continue
 
-            all_parts.append(", ".join(parts))
+                parts = [reason]
 
-        comments[op_code] = " | ".join(all_parts)
+                # Try to enrich with criteria/file from the detail events.
+                events = odriv_details.get(detail_key, []) if detail_key else []
+                red_p1_events = [
+                    e for e in events
+                    if e.get("priority") == 1
+                    and str(e.get("rating", "")).lower().startswith("red")
+                    and e.get("value") is not None
+                ]
+                if red_p1_events:
+                    lowest = min(red_p1_events, key=lambda e: e["value"])
+                    criteria = lowest.get("criteria", "")
+                    file_prefix = _extract_file_prefix(lowest.get("file", ""))
+                    if criteria:
+                        parts.append(criteria)
+                    if file_prefix:
+                        parts.append(file_prefix)
+
+                all_parts.append(", ".join(parts))
+
+        if all_parts:
+            comments[op_code] = " | ".join(all_parts)
 
     return comments

@@ -378,6 +378,15 @@ def heatmap_view_page():
                 st.session_state["sheet1_data"],
                 display_df,
                 st.session_state["odriv_details"],
+                eval_results_df=st.session_state.get("eval_results"),
+            )
+        elif "sheet1_data" in st.session_state:
+            # Even without odriv_details, generate AVL<7 comments
+            red_comments = generate_red_comments(
+                st.session_state["sheet1_data"],
+                display_df,
+                None,
+                eval_results_df=st.session_state.get("eval_results"),
             )
     if red_comments:
         display_df["Comments"] = display_df["Op Code"].map(
