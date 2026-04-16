@@ -1195,7 +1195,11 @@ def _extract_file_prefix(file_name):
             break
         prefix_parts.append(part)
 
-    return "_".join(prefix_parts) if prefix_parts else parts[0] if parts else ""
+    if prefix_parts:
+        return "_".join(prefix_parts)
+    if parts:
+        return parts[0]
+    return ""
 
 
 def generate_red_comments(sheet1_data, heatmap_df, odriv_details):
@@ -1260,7 +1264,7 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details):
         red_p1_events = [
             e for e in events
             if e.get("priority") == 1
-            and e.get("rating", "").lower().startswith("red")
+            and str(e.get("rating", "")).lower().startswith("red")
             and e.get("value") is not None
         ]
 
