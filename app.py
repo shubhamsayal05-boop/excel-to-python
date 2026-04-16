@@ -868,6 +868,15 @@ def _build_jpg_capture_html(heatmap_html, rows_per_page=50):
     just like the Excel "export as image" feature.
 
     Small tables (≤ rows_per_page data rows) are exported as a single JPG.
+
+    Parameters
+    ----------
+    heatmap_html : str
+        The full HTML string produced by ``_build_heatmap_html``.
+    rows_per_page : int, optional
+        Maximum number of data rows per JPG page (default 50).  The 3 header
+        rows (target/tested label row, column-name row, DR marker row) are
+        always prepended and do **not** count toward this limit.
     """
     return f"""<!DOCTYPE html>
 <html>
@@ -886,7 +895,12 @@ def _build_jpg_capture_html(heatmap_html, rows_per_page=50):
 <script>
 (function() {{
     var ROWS_PER_PAGE = {rows_per_page};
-    var HEADER_ROW_COUNT = 3;  // target/tested row, column-names row, DR row
+    // Number of header rows in the table built by _build_heatmap_html:
+    //   Row 1 – "Target Vehicle" / "Tested Vehicle" labels
+    //   Row 2 – Column names (Operation Modes, vehicle names, Status, Comments)
+    //   Row 3 – "DR" markers
+    // If _build_heatmap_html header structure changes, update this constant.
+    var HEADER_ROW_COUNT = 3;
 
     function makeTimestamp() {{
         var d = new Date();
@@ -988,8 +1002,7 @@ def _build_jpg_capture_html(heatmap_html, rows_per_page=50):
                 setTimeout(function() {{
                     captureTable(pageTbl).then(function(canvas) {{
                         canvas.toBlob(function(blob) {{
-                            var suffix = totalPages === 1 ? '' : '_page' + (idx + 1);
-                            triggerDownload(blob, 'heatmap_' + stamp + suffix + '.jpg');
+                            triggerDownload(blob, 'heatmap_' + stamp + '_page' + (idx + 1) + '.jpg');
                             container.removeChild(pageTbl);
                             idx++;
                             nextPage();
