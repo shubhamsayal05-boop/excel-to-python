@@ -11,7 +11,6 @@ import io
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 from config import (
     STATUS_COLORS,
@@ -387,17 +386,62 @@ def heatmap_view_page():
             help="For large tables, choose a row to split the image into two parts. "
                  "The header will be repeated in the second part.",
         )
-        jpg_clicked = st.button("📸 Download HeatMap as JPG")
 
-    if jpg_clicked:
-        # Determine the split row index (1-based count of data rows in Part 1)
-        if split_choice == "No split (single image)":
-            split_at = None
-        else:
-            # "After row N: ..." → extract N
-            split_at = int(split_choice.split(":")[0].replace("After row ", ""))
-        capture_html = _build_jpg_capture_html(html, split_at_row=split_at)
-        components.html(capture_html, height=50)
+    # Generate the JPG image(s) server-side with matplotlib (instant, no
+    # html2canvas).  Render once and offer download buttons.
+    jpg_buf = _render_heatmap_image(display_df, vehicle_names, target_label)
+
+    if split_choice == "No split (single image)":
+        st.download_button(
+            "📸 Download HeatMap as JPG",
+            jpg_buf.getvalue(),
+            "heatmap.jpg",
+            "image/jpeg",
+        )
+    else:
+        # Split: crop the full image into two parts using Pillow
+        from PIL import Image as _PILImage
+
+        split_at = int(split_choice.split(":")[0].replace("After row ", ""))
+        full_img = _PILImage.open(jpg_buf)
+        w, h = full_img.size
+
+        # 3 header rows + split_at data rows  →  pixel boundary
+        n_total_rows = 3 + len(display_df)
+        header_pixel_h = int(h * 3 / n_total_rows)
+        split_pixel_y = int(h * (3 + split_at) / n_total_rows)
+
+        # Part 1: top → split row
+        part1 = full_img.crop((0, 0, w, split_pixel_y))
+        buf1 = io.BytesIO()
+        part1.save(buf1, format="JPEG", quality=95)
+        buf1.seek(0)
+
+        # Part 2: header (repeated) + remaining rows
+        header_strip = full_img.crop((0, 0, w, header_pixel_h))
+        remaining = full_img.crop((0, split_pixel_y, w, h))
+        part2 = _PILImage.new("RGB", (w, header_pixel_h + remaining.size[1]), (255, 255, 255))
+        part2.paste(header_strip, (0, 0))
+        part2.paste(remaining, (0, header_pixel_h))
+        buf2 = io.BytesIO()
+        part2.save(buf2, format="JPEG", quality=95)
+        buf2.seek(0)
+
+        p1col, p2col = st.columns(2)
+        with p1col:
+            st.download_button(
+                "📸 Download Part 1",
+                buf1.getvalue(),
+                "heatmap_part1.jpg",
+                "image/jpeg",
+            )
+        with p2col:
+            st.download_button(
+                "📸 Download Part 2",
+                buf2.getvalue(),
+                "heatmap_part2.jpg",
+                "image/jpeg",
+            )
 
 
 # ============================================================================
@@ -878,178 +922,192 @@ def _build_heatmap_html(df, vehicle_names, target_label):
     return table
 
 
-def _build_jpg_capture_html(heatmap_html, split_at_row=None):
-    """Wrap heatmap HTML with html2canvas to auto-capture the table as JPG.
+def _hex_to_rgb(hex_color):
+    """Convert ``#RRGGBB`` to a matplotlib-compatible ``(r, g, b)`` tuple (0–1)."""
+    h = hex_color.lstrip("#")
+    return (int(h[0:2], 16) / 255, int(h[2:4], 16) / 255, int(h[4:6], 16) / 255)
 
-    When *split_at_row* is ``None`` the entire table is exported as one image.
-    When it is set to an integer **N** (1-based data-row index), the full
-    table is rendered to a single canvas and then **pixel-cropped** into two
-    JPG images:
 
-    * **Part 1** – header rows + data rows 1 … N
-    * **Part 2** – header rows (repeated) + data rows N+1 … end
+def _render_heatmap_image(df, vehicle_names, target_label):
+    """Render the heatmap DataFrame as a JPG byte buffer using matplotlib.
 
-    The canvas-cropping approach calls html2canvas only **once** on the
-    original table (which is already in the DOM), avoiding the previous
-    issue where cloned sub-tables appended to an off-screen container
-    caused html2canvas to hang indefinitely.
+    This replaces the previous html2canvas approach which hung indefinitely
+    on large tables inside the Streamlit iframe.
 
-    Parameters
-    ----------
-    heatmap_html : str
-        The full HTML string produced by ``_build_heatmap_html``.
-    split_at_row : int or None, optional
-        1-based index of the last data row to include in Part 1.  This value
-        is passed directly to the JavaScript as the ``SPLIT_AT`` variable and
-        used as a row boundary for canvas cropping.  ``None`` (default)
-        exports the whole table as a single JPG.
+    Returns
+    -------
+    io.BytesIO
+        A JPEG image of the full heatmap table.
     """
-    # Convert None → 0 sentinel for the JS side (0 = no split)
-    js_split = int(split_at_row) if split_at_row else 0
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import FancyBboxPatch
 
-    return f"""<!DOCTYPE html>
-<html>
-<head>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"
-        integrity="sha384-njM16rDpD+s/COM24kTx5cDIeEJD7BqXc9EjoP6KDAdAm8YGtS+wGGyRyvE4s46F"
-        crossorigin="anonymous"></script>
-</head>
-<body style="margin:0;padding:0;">
-<div id="capture-wrapper" style="position:fixed;left:-9999px;top:0;">
-{heatmap_html}
-</div>
-<p id="status" style="font-family:Arial,sans-serif;font-size:13px;color:#555;margin:4px;">
-⏳ Generating JPG, please wait…
-</p>
-<script>
-(function() {{
-    // 1-based index of the last data row in Part 1.  0 = no split.
-    var SPLIT_AT = {js_split};
-    var SCALE = 2;
-    // Number of header rows in the table built by _build_heatmap_html:
-    //   Row 1 – "Target Vehicle" / "Tested Vehicle" labels
-    //   Row 2 – Column names (Operation Modes, vehicle names, Status, Comments)
-    //   Row 3 – "DR" markers
-    // If _build_heatmap_html header structure changes, update this constant.
-    var HEADER_ROW_COUNT = 3;
+    has_status = "Status" in df.columns
+    vehicle_cols = [c for c in df.columns if c not in ("Op Code", "Operation Mode", "Status")]
 
-    function makeTimestamp() {{
-        var d = new Date();
-        return d.getFullYear().toString()
-            + ('0'+(d.getMonth()+1)).slice(-2)
-            + ('0'+d.getDate()).slice(-2) + '_'
-            + ('0'+d.getHours()).slice(-2)
-            + ('0'+d.getMinutes()).slice(-2)
-            + ('0'+d.getSeconds()).slice(-2);
-    }}
+    # ----- Build cell data, colors, and widths -----
+    # Column structure:  OpMode | sep | vehicle1 | sep | vehicle2 | ... | Status | Comments
+    # We skip Op Code (hidden) and separators (drawn as thin gaps).
 
-    function triggerDownload(blob, filename) {{
-        var a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-    }}
+    # Column widths (inches) – proportional to content
+    OP_W = 2.8
+    VEH_W = 1.2
+    SEP_W = 0.06
+    STATUS_W = 1.0
+    COMMENTS_W = 1.4
+    ROW_H = 0.28
+    HDR_H = 0.28
+    FONT_SIZE = 8
 
-    function captureTable(tableEl) {{
-        return html2canvas(tableEl, {{
-            backgroundColor: '#FFFFFF',
-            scale: SCALE,
-            logging: false,
-            useCORS: true,
-            scrollX: 0,
-            scrollY: 0,
-            x: 0,
-            y: 0,
-            width: tableEl.scrollWidth,
-            height: tableEl.scrollHeight,
-            windowWidth: tableEl.scrollWidth + 40,
-            windowHeight: tableEl.scrollHeight + 40
-        }});
-    }}
+    n_veh = len(vehicle_cols)
+    col_widths = [OP_W]
+    for _ in vehicle_cols:
+        col_widths.append(SEP_W)
+        col_widths.append(VEH_W)
+    if has_status:
+        col_widths.append(STATUS_W)
+        col_widths.append(COMMENTS_W)
 
-    /* Crop a region from *srcCanvas* and return a new canvas. */
-    function cropCanvas(srcCanvas, sx, sy, sw, sh) {{
-        var c = document.createElement('canvas');
-        c.width = sw;
-        c.height = sh;
-        c.getContext('2d').drawImage(srcCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
-        return c;
-    }}
+    n_cols = len(col_widths)
+    total_w = sum(col_widths)
 
-    window.addEventListener('load', function() {{
-        setTimeout(function() {{
-            var table = document.querySelector('.hm-table');
-            if (!table) {{
-                document.getElementById('status').textContent = '❌ Table not found.';
-                return;
-            }}
+    # Build rows: 3 header rows + data rows
+    n_data_rows = len(df)
+    n_total_rows = 3 + n_data_rows
+    total_h = n_total_rows * ROW_H + 0.1  # small margin
 
-            var statusEl = document.getElementById('status');
-            var stamp = makeTimestamp();
+    hdr_bg = _hex_to_rgb(COLOR_HEATMAP_HEADER)
+    white_bg = (1, 1, 1)
+    black_fc = (0, 0, 0)
+    white_fc = (1, 1, 1)
 
-            /* ---- Always capture the full table once ---- */
-            statusEl.textContent = '⏳ Rendering table…';
-            captureTable(table).then(function(fullCanvas) {{
-                var allRows = Array.prototype.slice.call(table.querySelectorAll('tr'));
-                var dataRows = allRows.slice(HEADER_ROW_COUNT);
+    fig, ax = plt.subplots(figsize=(total_w, total_h))
+    ax.set_xlim(0, total_w)
+    ax.set_ylim(0, total_h)
+    ax.axis("off")
+    fig.subplots_adjust(left=0, right=1, top=1, bottom=0)
 
-                /* ---- No split: download the whole canvas ---- */
-                if (SPLIT_AT === 0 || SPLIT_AT >= dataRows.length) {{
-                    fullCanvas.toBlob(function(blob) {{
-                        triggerDownload(blob, 'heatmap_' + stamp + '.jpg');
-                        statusEl.textContent = '✅ JPG downloaded!';
-                    }}, 'image/jpeg', 0.95);
-                    return;
-                }}
+    def draw_cell(x, y, w, h, bg, text, fc=black_fc, bold=False, align="center", fontsize=FONT_SIZE):
+        """Draw a single table cell."""
+        ax.add_patch(plt.Rectangle((x, y), w, h, facecolor=bg, edgecolor=(0, 0, 0), linewidth=0.5, clip_on=False))
+        if text:
+            ha = "center" if align == "center" else "left"
+            tx = x + w / 2 if align == "center" else x + 0.05
+            ax.text(
+                tx, y + h / 2, text,
+                fontsize=fontsize, color=fc,
+                fontweight="bold" if bold else "normal",
+                ha=ha, va="center", clip_on=True,
+            )
 
-                /* ---- Split via canvas cropping ---- */
-                var tableRect = table.getBoundingClientRect();
+    def draw_sep(x, y, h):
+        """Draw a thin separator column (no border)."""
+        ax.add_patch(plt.Rectangle((x, y), SEP_W, h, facecolor=white_bg, edgecolor="none", linewidth=0))
 
-                /* Pixel boundaries (CSS px, then × SCALE for canvas px) */
-                var lastHeaderRow = allRows[HEADER_ROW_COUNT - 1];
-                var headerBottomCSS = lastHeaderRow.getBoundingClientRect().bottom - tableRect.top;
+    def row_y(row_idx):
+        """Y coordinate for row *row_idx* (0 = top)."""
+        return total_h - (row_idx + 1) * ROW_H - 0.05
 
-                var splitRow = allRows[HEADER_ROW_COUNT + SPLIT_AT - 1];
-                var splitBottomCSS = splitRow.getBoundingClientRect().bottom - tableRect.top;
+    # ---- Row 0: Target / Tested labels ----
+    y0 = row_y(0)
+    # Op Mode cell – empty, no border
+    ax.add_patch(plt.Rectangle((0, y0), OP_W, ROW_H, facecolor=white_bg, edgecolor="none"))
+    cx = OP_W
+    for i in range(n_veh):
+        draw_sep(cx, y0, ROW_H)
+        cx += SEP_W
+        label = "Target Vehicle" if i == 0 else ("Tested Vehicle" if i == 1 else "")
+        draw_cell(cx, y0, VEH_W, ROW_H, white_bg, label, bold=True, fontsize=7)
+        cx += VEH_W
+    if has_status:
+        ax.add_patch(plt.Rectangle((cx, y0), STATUS_W, ROW_H, facecolor=white_bg, edgecolor="none"))
+        cx += STATUS_W
+        ax.add_patch(plt.Rectangle((cx, y0), COMMENTS_W, ROW_H, facecolor=white_bg, edgecolor="none"))
 
-                var headerH = Math.round(headerBottomCSS * SCALE);
-                var splitY  = Math.round(splitBottomCSS * SCALE);
-                var fullW   = fullCanvas.width;
-                var fullH   = fullCanvas.height;
+    # ---- Row 1: Column headers ----
+    y1 = row_y(1)
+    draw_cell(0, y1, OP_W, ROW_H, hdr_bg, "Operation Modes", bold=True, align="left")
+    cx = OP_W
+    for vname in vehicle_cols:
+        draw_sep(cx, y1, ROW_H)
+        cx += SEP_W
+        draw_cell(cx, y1, VEH_W, ROW_H, hdr_bg, str(vname), bold=True, fontsize=7)
+        cx += VEH_W
+    if has_status:
+        draw_cell(cx, y1, STATUS_W, ROW_H, hdr_bg, "Status", bold=True)
+        cx += STATUS_W
+        draw_cell(cx, y1, COMMENTS_W, ROW_H, hdr_bg, "Comments", bold=True)
 
-                /* Part 1: top of table → bottom of split row */
-                statusEl.textContent = '⏳ Generating Part 1 of 2…';
-                var c1 = cropCanvas(fullCanvas, 0, 0, fullW, splitY);
-                c1.toBlob(function(blob1) {{
-                    triggerDownload(blob1, 'heatmap_' + stamp + '_part1.jpg');
+    # ---- Row 2: DR markers ----
+    y2 = row_y(2)
+    draw_cell(0, y2, OP_W, ROW_H, hdr_bg, "", align="left")
+    cx = OP_W
+    for _ in vehicle_cols:
+        draw_sep(cx, y2, ROW_H)
+        cx += SEP_W
+        draw_cell(cx, y2, VEH_W, ROW_H, hdr_bg, "DR", fontsize=7)
+        cx += VEH_W
+    if has_status:
+        draw_cell(cx, y2, STATUS_W, ROW_H, hdr_bg, "")
+        cx += STATUS_W
+        draw_cell(cx, y2, COMMENTS_W, ROW_H, hdr_bg, "")
 
-                    /* Part 2: header (repeated) + remaining data rows */
-                    statusEl.textContent = '⏳ Generating Part 2 of 2…';
-                    var remainH = fullH - splitY;
-                    var c2 = document.createElement('canvas');
-                    c2.width = fullW;
-                    c2.height = headerH + remainH;
-                    var ctx2 = c2.getContext('2d');
-                    /* Draw header area */
-                    ctx2.drawImage(fullCanvas, 0, 0, fullW, headerH, 0, 0, fullW, headerH);
-                    /* Draw remaining data rows */
-                    ctx2.drawImage(fullCanvas, 0, splitY, fullW, remainH, 0, headerH, fullW, remainH);
-                    c2.toBlob(function(blob2) {{
-                        triggerDownload(blob2, 'heatmap_' + stamp + '_part2.jpg');
-                        statusEl.textContent = '✅ 2 JPGs downloaded!';
-                    }}, 'image/jpeg', 0.95);
-                }}, 'image/jpeg', 0.95);
-            }}).catch(function(err) {{
-                statusEl.textContent = '❌ Error: ' + err.message;
-            }});
-        }}, 500);
-    }});
-}})();
-</script>
-</body>
-</html>"""
+    # ---- Data rows ----
+    for row_idx, (_, row) in enumerate(df.iterrows()):
+        yd = row_y(3 + row_idx)
+        op_code = row.get("Op Code", "")
+        op_name = str(row.get("Operation Mode", ""))
+        is_parent = op_code in PARENT_OPERATION_CODES
+
+        op_bg = hdr_bg if is_parent else white_bg
+        draw_cell(0, yd, OP_W, ROW_H, op_bg, op_name, bold=is_parent, align="left")
+
+        cx = OP_W
+        for vname in vehicle_cols:
+            draw_sep(cx, yd, ROW_H)
+            cx += SEP_W
+            val = row.get(vname)
+            bg_hex, fc_hex = _score_bg(val)
+            display = _fmt_score(val)
+            draw_cell(cx, yd, VEH_W, ROW_H, _hex_to_rgb(bg_hex), display, fc=_hex_to_rgb(fc_hex))
+            cx += VEH_W
+
+        if has_status:
+            status_val = row.get("Status", "")
+            status_str = str(status_val).strip() if status_val and not (isinstance(status_val, float) and pd.isna(status_val)) else ""
+            status_upper = status_str.upper()
+
+            if is_parent:
+                if status_upper == "NOK":
+                    sbg, sfc = _hex_to_rgb(COLOR_RED), white_fc
+                elif status_upper == "ACCEPTABLE":
+                    sbg, sfc = _hex_to_rgb(COLOR_YELLOW_BRIGHT), black_fc
+                elif status_upper == "OK":
+                    sbg, sfc = _hex_to_rgb(COLOR_GREEN), white_fc
+                else:
+                    sbg, sfc = white_bg, black_fc
+                draw_cell(cx, yd, STATUS_W, ROW_H, sbg, status_str, fc=sfc, bold=True)
+            else:
+                draw_cell(cx, yd, STATUS_W, ROW_H, white_bg, "")
+                if status_upper in ("GREEN", "YELLOW", "RED"):
+                    dot_color = _hex_to_rgb({
+                        "GREEN": COLOR_GREEN,
+                        "YELLOW": COLOR_YELLOW,
+                        "RED": COLOR_RED,
+                    }[status_upper])
+                    dot_x = cx + STATUS_W / 2
+                    dot_y = yd + ROW_H / 2
+                    ax.plot(dot_x, dot_y, "o", color=dot_color, markersize=6, clip_on=False)
+            cx += STATUS_W
+            draw_cell(cx, yd, COMMENTS_W, ROW_H, white_bg, "")
+
+    buf = io.BytesIO()
+    fig.savefig(buf, format="jpeg", dpi=200, bbox_inches="tight", pad_inches=0.02)
+    plt.close(fig)
+    buf.seek(0)
+    return buf
 
 
 def _dot_html(status):
