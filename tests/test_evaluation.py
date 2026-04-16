@@ -904,3 +904,75 @@ class TestParseDetailSheetHeaders:
         assert e["value"] == 6.2
         assert e["priority"] == 1
         assert "GS-RL_0%" in e["file"]
+
+
+class TestParseDetailSheetWideFormat:
+    """Tests for ODRIV wide-format detail sheets where criteria are column headers."""
+
+    def test_wide_format_finds_worst_criteria(self):
+        """Simulates ODRIV wide-format: criteria names as column headers."""
+        import openpyxl
+        from evaluation_engine import _parse_detail_sheet
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        # Header row (mimicking ODRIV structure)
+        ws.cell(row=1, column=13, value="Criticality")
+        ws.cell(row=1, column=14, value="Event Priority")
+        ws.cell(row=1, column=15, value="Event Rating")
+        ws.cell(row=1, column=16, value="Throttle Position")
+        ws.cell(row=1, column=20, value="Brake release delay")
+        ws.cell(row=1, column=21, value="Brake release bump")
+        ws.cell(row=1, column=22, value="Acceleration disturbances")
+        ws.cell(row=1, column=23, value="Start time of the Sub Event")
+        ws.cell(row=1, column=24, value="Acquisition Name")
+
+        # Data row: RED P1 event with worst score in "Brake release bump"
+        ws.cell(row=2, column=13, value=1)
+        ws.cell(row=2, column=14, value=1)
+        ws.cell(row=2, column=15, value="RED")
+        ws.cell(row=2, column=16, value=0)
+        ws.cell(row=2, column=20, value=8.3)
+        ws.cell(row=2, column=21, value=6.4)  # worst
+        ws.cell(row=2, column=22, value=9.3)
+        ws.cell(row=2, column=23, value=5.39)
+        ws.cell(row=2, column=24, value="DriveAway_0%_Normal_Standard_BYD_Dolphin")
+
+        events = _parse_detail_sheet(ws)
+        wb.close()
+
+        assert len(events) >= 1
+        e = events[0]
+        assert e["priority"] == 1
+        assert e["rating"] == "RED"
+        assert e["criteria"] == "Brake release bump"
+        assert e["value"] == 6.4
+        assert "DriveAway_0%" in e["file"]
+
+    def test_wide_format_start_time_not_criteria(self):
+        """Start time of the Sub Event should NOT be detected as criteria."""
+        import openpyxl
+        from evaluation_engine import _parse_detail_sheet
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.cell(row=1, column=14, value="Event Priority")
+        ws.cell(row=1, column=15, value="Event Rating")
+        ws.cell(row=1, column=20, value="Brake release bump")
+        ws.cell(row=1, column=21, value="Start time of the Sub Event")
+        ws.cell(row=1, column=22, value="Acquisition Name")
+
+        ws.cell(row=2, column=14, value=1)
+        ws.cell(row=2, column=15, value="RED")
+        ws.cell(row=2, column=20, value=6.0)
+        ws.cell(row=2, column=21, value=1.5)  # lower, but this is start time
+        ws.cell(row=2, column=22, value="TestFile_Normal_BYD")
+
+        events = _parse_detail_sheet(ws)
+        wb.close()
+
+        assert len(events) >= 1
+        e = events[0]
+        # Criteria should be "Brake release bump" not start time
+        assert e["criteria"] == "Brake release bump"
+        assert e["value"] == 6.0

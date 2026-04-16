@@ -976,6 +976,14 @@ _SKIP_DETAIL_SHEETS = {
     "RATING", "HOME", "Sheet1", "Mapping Sheet", "HeatMap Sheet",
     "HeatMap Template", "Data Transfer Sheet", "AVL-Odriv Mapping",
     "Evaluation Results", "Lists", "HOME ", "Info", "Configuration",
+    # ODRIV v29+ internal sheets
+    "Résultats", "ANNEECONFIG", "DATA", "GRILLE", "Palette",
+    "DBStructure", "Graph_status", "Calculs", "POWERTRAIN",
+    "CONFIGURATIONS SEETINGS", "CONFIGURATIONS ARRAY", "UTILISATEURS",
+    "SETTINGS", "TARGET VEHICLE", "CONFIGURATIONS", "ENTETE_COLONNE",
+    "PARAMETRES GRAPH", "CFG", "totalPoint", "cfg_criticity",
+    "DEFINITION SDV", "SDV MANAGER", "VERSIONS", "GRAPHIQUES",
+    "VIERGE", "TARGETS", "structure", "DNT", "DocVersions",
 }
 
 
@@ -1017,28 +1025,50 @@ def parse_odriv_detail_sheets(file_obj):
 def _parse_detail_sheet(ws):
     """Parse a single ODRIV detail sheet and return a list of event dicts.
 
-    The function scans the first 25 rows for a header row that contains
-    at least three of the following keywords: file/measurement, event/
-    criteria, priority, event rating/rating, value/score/dr.  It then
-    reads data rows below the header and returns a list of event dicts.
+    Supports two layout formats:
+
+    **Narrow format** (simple):  Explicit ``Criteria``, ``Value`` columns –
+    each row describes one criteria evaluation.
+
+    **Wide format** (ODRIV v29+):  Individual criteria names are *column
+    headers* (e.g. ``Brake release bump``, ``Acceleration disturbances``)
+    and each data row contains scores for all criteria.  The parser detects
+    this when it finds ``Event Priority`` + ``Event Rating`` headers but no
+    single ``Criteria`` / ``Value`` column, and then identifies the criteria
+    score columns automatically.
     """
-    # Keyword families used to detect header columns.
-    # Order matters: more specific keys (rating) are matched before
-    # more generic ones (criteria) so that "Event Rating" is not
-    # accidentally captured by the "event" keyword in criteria.
+    # ------------------------------------------------------------------
+    # Phase 1: locate the header row
+    # ------------------------------------------------------------------
+    # Keyword families for explicit (narrow-format) columns.
+    # Order matters: more specific keys are matched first so that
+    # "Event Rating" is not captured by the "event" keyword in criteria.
+    # Each entry is (key, include_keywords, exclude_keywords).
     _HEADER_KEYWORDS_ORDERED = [
-        ("rating", ("event rating", "event_rating", "eventrating", "rating")),
-        ("priority", ("priority", "prio")),
-        ("file", ("file", "measurement", "filename", "file name")),
-        ("value", ("value", "score", "event value", "dr")),
-        ("criteria", ("criteria", "criterion", "event name", "event")),
+        ("rating", ("event rating", "event_rating", "eventrating", "rating"), ()),
+        ("priority", ("priority", "prio"), ()),
+        ("file", ("file", "measurement", "filename", "file name",
+                  "acquisition name", "acquisition"), ()),
+        ("value", ("value", "score", "event value", "dr"), ()),
+        ("criteria", ("criteria", "criterion", "event name", "event"),
+                     ("start time", "sub event")),
     ]
+
+    # Column headers that should never be treated as criteria score
+    # columns in the wide-format detection.
+    _NON_CRITERIA_HEADERS = (
+        "start time", "indice", "id bdd", "id_bdd",
+        "criticality", "selector", "throttle",
+        "speed", "em speed", "pedal change", "ax max",
+        "acquisition", "event priority", "event rating",
+    )
 
     header_row = None
     col_map = {}
+    row_vals_at_header = {}
 
     max_scan_row = min(ws.max_row or 1, 25)
-    max_scan_col = min(ws.max_column or 1, 60)
+    max_scan_col = min(ws.max_column or 1, 200)
 
     for row_idx in range(1, max_scan_row + 1):
         row_vals = {}
@@ -1049,9 +1079,11 @@ def _parse_detail_sheet(ws):
 
         matches = {}
         claimed_cols = set()
-        for key, keywords in _HEADER_KEYWORDS_ORDERED:
+        for key, keywords, excludes in _HEADER_KEYWORDS_ORDERED:
             for col_idx, val in row_vals.items():
                 if col_idx in claimed_cols:
+                    continue
+                if any(ex in val for ex in excludes):
                     continue
                 if any(kw in val for kw in keywords):
                     if key not in matches:
@@ -1059,31 +1091,66 @@ def _parse_detail_sheet(ws):
                         claimed_cols.add(col_idx)
                         break
 
-        # Accept the row as a header if it contains at least 3 keyword matches.
+        # Accept the row as a header if it contains at least 3 keyword
+        # matches (narrow format) or at least priority + rating (wide).
         if len(matches) >= 3:
             header_row = row_idx
             col_map = matches
+            row_vals_at_header = row_vals
+            break
+        if len(matches) >= 2 and "priority" in matches and "rating" in matches:
+            header_row = row_idx
+            col_map = matches
+            row_vals_at_header = row_vals
             break
 
     if header_row is None:
         return []
 
+    # ------------------------------------------------------------------
+    # Phase 2: detect wide-format criteria columns if needed
+    # ------------------------------------------------------------------
+    # Wide format is used when we found priority + rating but there is no
+    # explicit "criteria" or "value" column.
+    wide_criteria_cols = {}  # {col_idx: header_text}
+    is_wide = "criteria" not in col_map or "value" not in col_map
+
+    if is_wide:
+        claimed = set(col_map.values())
+        for col_idx, header_text in row_vals_at_header.items():
+            if col_idx in claimed:
+                continue
+            if not header_text:
+                continue
+            # Skip known non-criteria columns.
+            if any(nc in header_text for nc in _NON_CRITERIA_HEADERS):
+                continue
+            # Peek at the first data row: if the cell is numeric, this
+            # column is a candidate criteria score column.
+            peek_val = ws.cell(row=header_row + 1, column=col_idx).value
+            if peek_val is not None:
+                try:
+                    float(str(peek_val))
+                    raw = ws.cell(row=header_row, column=col_idx).value
+                    wide_criteria_cols[col_idx] = str(raw).strip() if raw else header_text
+                except (ValueError, TypeError):
+                    pass
+
+    # ------------------------------------------------------------------
+    # Phase 3: read data rows
+    # ------------------------------------------------------------------
     events = []
     for row_idx in range(header_row + 1, (ws.max_row or header_row) + 1):
         event = {}
 
+        # --- file ---
         if "file" in col_map:
             v = ws.cell(row=row_idx, column=col_map["file"]).value
             event["file"] = str(v).strip() if v else ""
         else:
             event["file"] = ""
 
-        if "criteria" in col_map:
-            v = ws.cell(row=row_idx, column=col_map["criteria"]).value
-            event["criteria"] = str(v).strip() if v else ""
-        else:
-            event["criteria"] = ""
-
+        # --- priority ---
         if "priority" in col_map:
             v = ws.cell(row=row_idx, column=col_map["priority"]).value
             try:
@@ -1093,20 +1160,48 @@ def _parse_detail_sheet(ws):
         else:
             event["priority"] = 0
 
+        # --- rating ---
         if "rating" in col_map:
             v = ws.cell(row=row_idx, column=col_map["rating"]).value
             event["rating"] = str(v).strip() if v else ""
         else:
             event["rating"] = ""
 
-        if "value" in col_map:
-            v = ws.cell(row=row_idx, column=col_map["value"]).value
-            try:
-                event["value"] = float(str(v))
-            except (ValueError, TypeError):
-                event["value"] = None
+        # --- criteria & value ---
+        if is_wide and wide_criteria_cols:
+            # Wide format: find the criteria column with the lowest numeric
+            # score in this row and use its header as the criteria name.
+            best_col = None
+            best_val = None
+            for c_col in wide_criteria_cols:
+                cv = ws.cell(row=row_idx, column=c_col).value
+                if cv is None:
+                    continue
+                try:
+                    fv = float(str(cv))
+                except (ValueError, TypeError):
+                    continue
+                if best_val is None or fv < best_val:
+                    best_val = fv
+                    best_col = c_col
+            event["criteria"] = wide_criteria_cols.get(best_col, "") if best_col else ""
+            event["value"] = best_val
         else:
-            event["value"] = None
+            # Narrow format: explicit criteria / value columns.
+            if "criteria" in col_map:
+                v = ws.cell(row=row_idx, column=col_map["criteria"]).value
+                event["criteria"] = str(v).strip() if v else ""
+            else:
+                event["criteria"] = ""
+
+            if "value" in col_map:
+                v = ws.cell(row=row_idx, column=col_map["value"]).value
+                try:
+                    event["value"] = float(str(v))
+                except (ValueError, TypeError):
+                    event["value"] = None
+            else:
+                event["value"] = None
 
         # Skip empty / header-echo rows.
         if not event["criteria"] and not event["file"] and event["priority"] == 0:
@@ -1122,12 +1217,28 @@ def _normalize_for_match(s):
     return s.lower().replace(" ", "").replace("-", "").replace("_", "")
 
 
+# Common abbreviations used in ODRIV sheet names.
+_ABBREVIATION_MAP = {
+    "cst": "constant",
+    "decel": "deceleration",
+    "accel": "acceleration",
+    "da": "driveaway",
+}
+
+
+def _expand_abbreviations(text):
+    """Expand common ODRIV abbreviations (e.g. ``Cst`` → ``Constant``)."""
+    words = text.lower().replace("-", " ").replace("_", " ").split()
+    expanded = [_ABBREVIATION_MAP.get(w, w) for w in words]
+    return "".join(expanded)
+
+
 def _match_sheet_to_operation(sheet_names, section, op_name):
     """Find the best-matching detail sheet name for *section* + *op_name*.
 
     Tries exact match first (e.g. ``"Driveaway-Creep"`` for section
     ``"Drive away"`` and operation ``"Creep"``), then progressively
-    fuzzier matching.
+    fuzzier matching, including expanding common abbreviations.
 
     Returns the matching sheet name, or ``None``.
     """
@@ -1166,6 +1277,40 @@ def _match_sheet_to_operation(sheet_names, section, op_name):
         norm_op = _normalize_for_match(op_name)
         for sheet in sheet_names:
             if norm_op in _normalize_for_match(sheet):
+                return sheet
+
+    # 4) Abbreviation-expanded matching (e.g. "Cst" → "Constant").
+    for sheet in sheet_names:
+        es = _expand_abbreviations(sheet)
+        for cand in candidates:
+            if _expand_abbreviations(cand) == es:
+                return sheet
+
+    # 5) Abbreviation-expanded containment of section + operation.
+    if section and op_name:
+        exp_sec = _expand_abbreviations(section)
+        exp_op = _expand_abbreviations(op_name)
+        for sheet in sheet_names:
+            es = _expand_abbreviations(sheet)
+            if exp_sec in es and exp_op in es:
+                return sheet
+
+    # 6) Abbreviation-expanded containment of just the operation name.
+    #    Also strip "/" from op names like "At constant speed / acceleration".
+    #    Prefer sheets that also contain the section when available.
+    if op_name:
+        clean_op = op_name.split("/")[0].strip()
+        exp_op = _expand_abbreviations(clean_op)
+        # First try matching with section constraint.
+        if section:
+            exp_sec = _expand_abbreviations(section)
+            for sheet in sheet_names:
+                es = _expand_abbreviations(sheet)
+                if exp_sec in es and exp_op in es:
+                    return sheet
+        # Then fall back to just the operation name.
+        for sheet in sheet_names:
+            if exp_op in _expand_abbreviations(sheet):
                 return sheet
 
     return None
