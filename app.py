@@ -950,19 +950,29 @@ def _render_heatmap_image(df, vehicle_names, target_label):
 
     # Column widths (inches) – proportional to content
     OP_W = 2.8
-    VEH_W = 1.2
     SEP_W = 0.06
     STATUS_W = 1.0
     COMMENTS_W = 1.4
     ROW_H = 0.28
     HDR_H = 0.28
     FONT_SIZE = 8
+    VEH_HDR_FONT = 7  # font size used for vehicle name headers
+
+    # Dynamically size vehicle columns based on name length so names are
+    # never clipped.  Approximate width: ~0.075 inches per character at 7pt,
+    # with a minimum of 1.2 inches (enough for score values).
+    VEH_W_MIN = 1.2
+    CHAR_WIDTH_INCHES = 0.075
+    veh_col_widths = []
+    for vname in vehicle_cols:
+        needed = len(str(vname)) * CHAR_WIDTH_INCHES + 0.2  # 0.2 padding
+        veh_col_widths.append(max(VEH_W_MIN, needed))
 
     n_veh = len(vehicle_cols)
     col_widths = [OP_W]
-    for _ in vehicle_cols:
+    for vw in veh_col_widths:
         col_widths.append(SEP_W)
-        col_widths.append(VEH_W)
+        col_widths.append(vw)
     if has_status:
         col_widths.append(STATUS_W)
         col_widths.append(COMMENTS_W)
@@ -1013,11 +1023,12 @@ def _render_heatmap_image(df, vehicle_names, target_label):
     ax.add_patch(plt.Rectangle((0, y0), OP_W, ROW_H, facecolor=white_bg, edgecolor="none"))
     cx = OP_W
     for i in range(n_veh):
+        vw = veh_col_widths[i]
         draw_sep(cx, y0, ROW_H)
         cx += SEP_W
         label = "Target Vehicle" if i == 0 else ("Tested Vehicle" if i == 1 else "")
-        draw_cell(cx, y0, VEH_W, ROW_H, white_bg, label, bold=True, fontsize=7)
-        cx += VEH_W
+        draw_cell(cx, y0, vw, ROW_H, white_bg, label, bold=True, fontsize=VEH_HDR_FONT)
+        cx += vw
     if has_status:
         ax.add_patch(plt.Rectangle((cx, y0), STATUS_W, ROW_H, facecolor=white_bg, edgecolor="none"))
         cx += STATUS_W
@@ -1027,11 +1038,12 @@ def _render_heatmap_image(df, vehicle_names, target_label):
     y1 = row_y(1)
     draw_cell(0, y1, OP_W, ROW_H, hdr_bg, "Operation Modes", bold=True, align="left")
     cx = OP_W
-    for vname in vehicle_cols:
+    for i, vname in enumerate(vehicle_cols):
+        vw = veh_col_widths[i]
         draw_sep(cx, y1, ROW_H)
         cx += SEP_W
-        draw_cell(cx, y1, VEH_W, ROW_H, hdr_bg, str(vname), bold=True, fontsize=7)
-        cx += VEH_W
+        draw_cell(cx, y1, vw, ROW_H, hdr_bg, str(vname), bold=True, fontsize=VEH_HDR_FONT)
+        cx += vw
     if has_status:
         draw_cell(cx, y1, STATUS_W, ROW_H, hdr_bg, "Status", bold=True)
         cx += STATUS_W
@@ -1041,11 +1053,12 @@ def _render_heatmap_image(df, vehicle_names, target_label):
     y2 = row_y(2)
     draw_cell(0, y2, OP_W, ROW_H, hdr_bg, "", align="left")
     cx = OP_W
-    for _ in vehicle_cols:
+    for i in range(n_veh):
+        vw = veh_col_widths[i]
         draw_sep(cx, y2, ROW_H)
         cx += SEP_W
-        draw_cell(cx, y2, VEH_W, ROW_H, hdr_bg, "DR", fontsize=7)
-        cx += VEH_W
+        draw_cell(cx, y2, vw, ROW_H, hdr_bg, "DR", fontsize=VEH_HDR_FONT)
+        cx += vw
     if has_status:
         draw_cell(cx, y2, STATUS_W, ROW_H, hdr_bg, "")
         cx += STATUS_W
@@ -1062,14 +1075,15 @@ def _render_heatmap_image(df, vehicle_names, target_label):
         draw_cell(0, yd, OP_W, ROW_H, op_bg, op_name, bold=is_parent, align="left")
 
         cx = OP_W
-        for vname in vehicle_cols:
+        for i, vname in enumerate(vehicle_cols):
+            vw = veh_col_widths[i]
             draw_sep(cx, yd, ROW_H)
             cx += SEP_W
             val = row.get(vname)
             bg_hex, fc_hex = _score_bg(val)
             display = _fmt_score(val)
-            draw_cell(cx, yd, VEH_W, ROW_H, _hex_to_rgb(bg_hex), display, fc=_hex_to_rgb(fc_hex))
-            cx += VEH_W
+            draw_cell(cx, yd, vw, ROW_H, _hex_to_rgb(bg_hex), display, fc=_hex_to_rgb(fc_hex))
+            cx += vw
 
         if has_status:
             status_val = row.get("Status", "")
