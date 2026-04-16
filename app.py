@@ -16,11 +16,21 @@ from config import (
     STATUS_COLORS,
     COLOR_GREEN,
     COLOR_YELLOW,
+    COLOR_YELLOW_BRIGHT,
     COLOR_RED,
     COLOR_BLUE_HEADER,
+    COLOR_SHEET1_HEADER,
+    COLOR_SHEET1_SECTION_BG,
+    COLOR_SHEET1_DOT_BG,
     OPERATION_MODE_MAPPING,
     AVL_ODRIV_MAPPING,
     PARENT_OPERATION_CODES,
+    SCORE_SCALE_MIN,
+    SCORE_SCALE_MID,
+    SCORE_SCALE_MAX,
+    SCORE_COLOR_MIN,
+    SCORE_COLOR_MID,
+    SCORE_COLOR_MAX,
 )
 from heatmap_engine import (
     build_heatmap_template,
@@ -562,21 +572,61 @@ def help_page():
 # Styling Helpers
 # ============================================================================
 
+def _score_gradient(v):
+    """
+    Compute the 3-point color-scale gradient matching the Excel conditional
+    formatting on HeatMap score columns.
+
+    Endpoints:
+        score 1  → #FF0000 (red)
+        score 7  → #FFFF00 (yellow)
+        score 10 → #00B050 (green)
+
+    Between endpoints the color is linearly interpolated in RGB space.
+    Returns a ``#RRGGBB`` hex string.
+    """
+    if v <= SCORE_SCALE_MIN:
+        r, g, b = SCORE_COLOR_MIN
+    elif v >= SCORE_SCALE_MAX:
+        r, g, b = SCORE_COLOR_MAX
+    elif v <= SCORE_SCALE_MID:
+        t = (v - SCORE_SCALE_MIN) / (SCORE_SCALE_MID - SCORE_SCALE_MIN)
+        r = int(SCORE_COLOR_MIN[0] + t * (SCORE_COLOR_MID[0] - SCORE_COLOR_MIN[0]))
+        g = int(SCORE_COLOR_MIN[1] + t * (SCORE_COLOR_MID[1] - SCORE_COLOR_MIN[1]))
+        b = int(SCORE_COLOR_MIN[2] + t * (SCORE_COLOR_MID[2] - SCORE_COLOR_MIN[2]))
+    else:
+        t = (v - SCORE_SCALE_MID) / (SCORE_SCALE_MAX - SCORE_SCALE_MID)
+        r = int(SCORE_COLOR_MID[0] + t * (SCORE_COLOR_MAX[0] - SCORE_COLOR_MID[0]))
+        g = int(SCORE_COLOR_MID[1] + t * (SCORE_COLOR_MAX[1] - SCORE_COLOR_MID[1]))
+        b = int(SCORE_COLOR_MID[2] + t * (SCORE_COLOR_MAX[2] - SCORE_COLOR_MID[2]))
+    return f"#{r:02X}{g:02X}{b:02X}"
+
+
+def _text_color_for_bg(hex_bg):
+    """Return white or black text depending on background luminance."""
+    hex_bg = hex_bg.lstrip("#")
+    r, g, b = int(hex_bg[0:2], 16), int(hex_bg[2:4], 16), int(hex_bg[4:6], 16)
+    # Relative luminance (ITU-R BT.709)
+    lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    return "#000000" if lum > 140 else "#FFFFFF"
+
+
 def _score_bg(val):
-    """Return (background, text-color) CSS pair for an AVL score cell."""
+    """Return (background, text-color) CSS pair for an AVL score cell.
+
+    Uses the same 3-point color gradient as the Excel HeatMap Sheet.
+    """
     if val is None or (isinstance(val, float) and pd.isna(val)):
         return ("#FFFFFF", "#000000")
     try:
         v = float(val)
     except (ValueError, TypeError):
         return ("#FFFFFF", "#000000")
-    if v >= 8.0:
-        return (COLOR_GREEN, "#FFFFFF")
-    if v >= 7.0:
-        return (COLOR_YELLOW, "#000000")
-    if v > 0:
-        return (COLOR_RED, "#FFFFFF")
-    return ("#FFFFFF", "#000000")
+    if v <= 0:
+        return ("#FFFFFF", "#000000")
+    bg = _score_gradient(v)
+    fc = _text_color_for_bg(bg)
+    return (bg, fc)
 
 
 def _status_bg(val):
@@ -767,10 +817,11 @@ def _build_heatmap_html(df, vehicle_names, target_label):
 
             if is_parent:
                 # Parent rows show text: OK / Acceptable / NOK with color
+                # Colors match the HeatMap Sheet conditional formatting exactly
                 if status_upper == "NOK":
                     sbg, sfc = (COLOR_RED, "#FFFFFF")
                 elif status_upper == "ACCEPTABLE":
-                    sbg, sfc = (COLOR_YELLOW, "#000000")
+                    sbg, sfc = (COLOR_YELLOW_BRIGHT, "#000000")
                 elif status_upper == "OK":
                     sbg, sfc = (COLOR_GREEN, "#FFFFFF")
                 else:
@@ -811,56 +862,58 @@ def _dot_html(status):
     }
     color = color_map.get(str(status).upper(), "#D0D0D0")
     if str(status).upper() in ("N/A", ""):
-        # White dot on dark background is hard to see — use a light gray
-        return '<span style="color:#D0D0D0;font-size:16px;">●</span>'
+        # White/no-data dot — show faint on the gray background
+        return '<span style="color:#FFFFFF;font-size:16px;">●</span>'
     return f'<span style="color:{color};font-size:16px;">●</span>'
 
 
 def _build_sheet1_html(operations, sections, tested_car, target_car):
     """
     Build an HTML table that displays Sheet1 data with actual colored dots,
-    replicating the Excel look.
+    replicating the Excel look.  Colors match the Excel Sheet1 / ODRIV RATING
+    tab exactly.
     """
-    css = """
+    css = f"""
     <style>
-    .s1-wrap { overflow-x: auto; }
-    .s1-table {
+    .s1-wrap {{ overflow-x: auto; }}
+    .s1-table {{
         border-collapse: collapse;
         font-family: Arial, Calibri, sans-serif;
         font-size: 12px;
         width: 100%;
         min-width: 800px;
-    }
-    .s1-table th, .s1-table td {
+    }}
+    .s1-table th, .s1-table td {{
         border: 1px solid #B4C6E7;
         padding: 4px 6px;
         white-space: nowrap;
-    }
-    .s1-hdr {
-        background-color: #4472C4;
+    }}
+    .s1-hdr {{
+        background-color: {COLOR_SHEET1_HEADER};
         color: #FFFFFF;
         text-align: center;
         font-weight: bold;
-    }
-    .s1-hdr-left {
-        background-color: #4472C4;
+    }}
+    .s1-hdr-left {{
+        background-color: {COLOR_SHEET1_HEADER};
         color: #FFFFFF;
         text-align: left;
         font-weight: bold;
-    }
-    .s1-sub {
-        background-color: #D9E1F2;
+    }}
+    .s1-sub {{
+        background-color: {COLOR_SHEET1_HEADER};
+        color: #FFFFFF;
         text-align: center;
         font-size: 11px;
-    }
-    .s1-section td {
+    }}
+    .s1-section td {{
         font-weight: bold;
-        background-color: #D6DCE4;
-    }
-    .s1-code { text-align: left; font-size: 10px; color: #808080; width: 70px; }
-    .s1-opname { text-align: left; min-width: 180px; }
-    .s1-dot { text-align: center; width: 30px; background: #2B2B2B; }
-    .s1-pct { text-align: center; min-width: 60px; }
+        background-color: {COLOR_SHEET1_SECTION_BG};
+    }}
+    .s1-code {{ text-align: left; font-size: 10px; color: #808080; width: 70px; }}
+    .s1-opname {{ text-align: left; min-width: 180px; }}
+    .s1-dot {{ text-align: center; width: 30px; background: {COLOR_SHEET1_DOT_BG}; }}
+    .s1-pct {{ text-align: center; min-width: 60px; }}
     </style>
     """
 

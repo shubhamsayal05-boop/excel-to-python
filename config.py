@@ -222,17 +222,27 @@ YELLOW_GROUP_THRESHOLD = 0.35  # >35% yellow in group = group is yellow
 
 # ============================================================================
 # Color Definitions
+# All RGB values extracted from the Excel workbook conditional formatting
+# and cell styles so the Python tool matches the Excel tool exactly.
 # ============================================================================
-COLOR_GREEN = "#00B050"
-COLOR_YELLOW = "#FFC000"
-COLOR_RED = "#FF0000"
+COLOR_GREEN = "#00B050"       # Excel status GREEN / OK / score-scale green endpoint
+COLOR_YELLOW = "#FFC000"      # Excel status YELLOW (Evaluation Results sheet)
+COLOR_YELLOW_BRIGHT = "#FFFF00"  # Excel HeatMap "Acceptable" / score-scale yellow midpoint
+COLOR_RED = "#FF0000"         # Excel status RED / NOK / score-scale red endpoint
 COLOR_DARK_RED = "#C00000"
-COLOR_BLUE_HEADER = "#4472C4"
-COLOR_LIGHT_BLUE = "#D9E1F2"
 COLOR_WHITE = "#FFFFFF"
 COLOR_BLACK = "#000000"
 
-# Status to color mapping
+# Sheet1 header & section colors (from Excel Sheet1 / ODRIV RATING tab)
+COLOR_SHEET1_HEADER = "#17375E"   # dark navy – Sheet1 header rows
+COLOR_SHEET1_SECTION_BG = "#F2F2F2"  # light gray – section header rows
+COLOR_SHEET1_DOT_BG = "#D9D9D9"     # gray – dot (●) cell background
+
+# HeatMap view header colors (theme-based in Excel)
+COLOR_BLUE_HEADER = "#4472C4"
+COLOR_LIGHT_BLUE = "#D9E1F2"
+
+# Status to color mapping (for Evaluation Results rendering)
 STATUS_COLORS = {
     "GREEN": COLOR_GREEN,
     "YELLOW": COLOR_YELLOW,
@@ -249,3 +259,11 @@ DOT_FONT_COLORS = {
     "BLUE": "#99FBFB",
     "WHITE": "#FFFFFF",
 }
+
+# Score color-scale endpoints (3-point gradient matching Excel conditional formatting)
+SCORE_SCALE_MIN = 1.0         # red endpoint
+SCORE_SCALE_MID = 7.0         # yellow midpoint
+SCORE_SCALE_MAX = 10.0        # green endpoint
+SCORE_COLOR_MIN = (0xFF, 0x00, 0x00)   # #FF0000
+SCORE_COLOR_MID = (0xFF, 0xFF, 0x00)   # #FFFF00
+SCORE_COLOR_MAX = (0x00, 0xB0, 0x50)   # #00B050
