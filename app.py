@@ -18,10 +18,13 @@ from config import (
     COLOR_YELLOW,
     COLOR_YELLOW_BRIGHT,
     COLOR_RED,
-    COLOR_BLUE_HEADER,
+    COLOR_HEATMAP_HEADER,
+    COLOR_HEATMAP_BORDER,
     COLOR_SHEET1_HEADER,
     COLOR_SHEET1_SECTION_BG,
     COLOR_SHEET1_DOT_BG,
+    COLOR_BLACK,
+    COLOR_WHITE,
     OPERATION_MODE_MAPPING,
     AVL_ODRIV_MAPPING,
     PARENT_OPERATION_CODES,
@@ -615,18 +618,19 @@ def _score_bg(val):
     """Return (background, text-color) CSS pair for an AVL score cell.
 
     Uses the same 3-point color gradient as the Excel HeatMap Sheet.
+    Font is always black to match Excel (the color-scale conditional formatting
+    only sets the background; the cell font stays as the base format = black).
     """
     if val is None or (isinstance(val, float) and pd.isna(val)):
-        return ("#FFFFFF", "#000000")
+        return (COLOR_WHITE, COLOR_BLACK)
     try:
         v = float(val)
     except (ValueError, TypeError):
-        return ("#FFFFFF", "#000000")
+        return (COLOR_WHITE, COLOR_BLACK)
     if v <= 0:
-        return ("#FFFFFF", "#000000")
+        return (COLOR_WHITE, COLOR_BLACK)
     bg = _score_gradient(v)
-    fc = _text_color_for_bg(bg)
-    return (bg, fc)
+    return (bg, COLOR_BLACK)
 
 
 def _status_bg(val):
@@ -677,64 +681,66 @@ def _build_heatmap_html(df, vehicle_names, target_label):
     # Derive vehicle column names from the DataFrame
     vehicle_cols = [c for c in df.columns if c not in ("Op Code", "Operation Mode", "Status")]
 
-    # --- CSS ---
-    css = """
+    # --- CSS --- (colors resolved from Excel HeatMap Sheet theme)
+    css = f"""
     <style>
-    .hm-wrap { overflow-x: auto; }
-    .hm-table {
+    .hm-wrap {{ overflow-x: auto; }}
+    .hm-table {{
         border-collapse: collapse;
         font-family: Arial, Calibri, sans-serif;
         font-size: 12px;
         width: 100%;
         min-width: 600px;
-    }
-    .hm-table th, .hm-table td {
-        border: 1px solid #B4C6E7;
+    }}
+    .hm-table th, .hm-table td {{
+        border: 1px solid {COLOR_HEATMAP_BORDER};
         padding: 4px 8px;
         white-space: nowrap;
-    }
-    /* Header rows */
-    .hm-hdr {
-        background-color: #4472C4;
-        color: #FFFFFF;
+    }}
+    /* Header rows – gray background, black text (Excel theme=0, tint=-0.15) */
+    .hm-hdr {{
+        background-color: {COLOR_HEATMAP_HEADER};
+        color: {COLOR_BLACK};
         text-align: center;
         font-weight: bold;
-    }
-    .hm-hdr-op {
-        background-color: #4472C4;
-        color: #FFFFFF;
+    }}
+    .hm-hdr-op {{
+        background-color: {COLOR_HEATMAP_HEADER};
+        color: {COLOR_BLACK};
         text-align: left;
         font-weight: bold;
-    }
-    /* Sub-header (DR row) */
-    .hm-sub {
-        background-color: #D9E1F2;
+    }}
+    /* Sub-header (DR row) – same gray as header */
+    .hm-sub {{
+        background-color: {COLOR_HEATMAP_HEADER};
+        color: {COLOR_BLACK};
         text-align: center;
         font-size: 11px;
-    }
-    .hm-sub-op {
-        background-color: #D9E1F2;
+    }}
+    .hm-sub-op {{
+        background-color: {COLOR_HEATMAP_HEADER};
+        color: {COLOR_BLACK};
         text-align: left;
         font-size: 11px;
-    }
+    }}
     /* Narrow separator column */
-    .hm-sep { width: 6px; min-width: 6px; max-width: 6px; padding: 0; background: #FFFFFF; border-left: none; border-right: none; }
+    .hm-sep {{ width: 6px; min-width: 6px; max-width: 6px; padding: 0; background: {COLOR_WHITE}; border-left: none; border-right: none; }}
     /* Op Code column (narrow) */
-    .hm-code { text-align: left; font-size: 10px; color: #808080; width: 70px; }
+    .hm-code {{ text-align: left; font-size: 10px; color: #808080; width: 70px; }}
     /* Operation Mode column */
-    .hm-opname { text-align: left; min-width: 220px; }
+    .hm-opname {{ text-align: left; min-width: 220px; }}
     /* Score cell */
-    .hm-score { text-align: center; min-width: 100px; font-size: 12px; }
+    .hm-score {{ text-align: center; min-width: 100px; font-size: 12px; }}
     /* Status cell */
-    .hm-status { text-align: center; min-width: 80px; font-weight: bold; }
+    .hm-status {{ text-align: center; min-width: 80px; font-weight: bold; }}
     /* Comments cell */
-    .hm-comments { text-align: left; min-width: 120px; }
-    /* Parent (bold group header) row */
-    .hm-parent td { font-weight: bold; }
-    .hm-parent .hm-opname { background-color: #D6DCE4; }
-    .hm-parent .hm-code { background-color: #D6DCE4; }
-    /* Target label row */
-    .hm-target { background-color: #4472C4; color: #FFFFFF; text-align: center; font-weight: bold; font-size: 11px; }
+    .hm-comments {{ text-align: left; min-width: 120px; }}
+    /* Parent (bold group header) row – same gray background */
+    .hm-parent td {{ font-weight: bold; }}
+    .hm-parent .hm-opname {{ background-color: {COLOR_HEATMAP_HEADER}; }}
+    .hm-parent .hm-code {{ background-color: {COLOR_HEATMAP_HEADER}; }}
+    /* Target label row – white background, black text (Excel theme=0, tint=0) */
+    .hm-target {{ background-color: {COLOR_WHITE}; color: {COLOR_BLACK}; text-align: center; font-weight: bold; font-size: 11px; }}
     </style>
     """
 

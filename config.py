@@ -238,7 +238,11 @@ COLOR_SHEET1_HEADER = "#17375E"   # dark navy – Sheet1 header rows
 COLOR_SHEET1_SECTION_BG = "#F2F2F2"  # light gray – section header rows
 COLOR_SHEET1_DOT_BG = "#D9D9D9"     # gray – dot (●) cell background
 
-# HeatMap view header colors (theme-based in Excel)
+# HeatMap view colors (resolved from Excel theme: lt1=#FFFFFF with tint applied)
+# Header/sub-header/parent rows: theme=0 (white), tint=-0.15 → #D9D9D9
+COLOR_HEATMAP_HEADER = "#D9D9D9"     # gray – header, sub-header, parent rows
+COLOR_HEATMAP_BORDER = "#000000"     # auto/black borders in Excel HeatMap Sheet
+# Evaluation Results sheet header (explicit RGB in Excel, not theme-based)
 COLOR_BLUE_HEADER = "#4472C4"
 COLOR_LIGHT_BLUE = "#D9E1F2"
 
