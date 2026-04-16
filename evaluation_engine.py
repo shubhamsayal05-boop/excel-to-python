@@ -1445,8 +1445,10 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details,
     a comment string.
 
     When the RED status is caused **solely** by the tested AVL score being
-    below the threshold (< 7) — i.e. neither P1 is RED — the comment will
-    contain ``AVL<7``.  If P1 *is* RED, only the P1-based reason is shown.
+    below the threshold (< 7) — i.e. there is no P1 RED reason from either
+    the sheet-level P1 fields or from Red P1 events in the ODRIV detail
+    data — the comment will contain ``AVL<7``.  If any Red P1 reason exists
+    (from either source), only the P1-based reason is shown.
 
     When the RED reason is **Responsiveness**, the function looks for a
     ``"<sheet>__resp"`` key in *odriv_details* (the Responsiveness section
@@ -1457,7 +1459,7 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details,
 
         Red P1 Drivability, {Criteria}, {FilePrefix}
 
-    or when AVL < 7 and P1 is not RED::
+    or when AVL < 7 and no Red P1 reason exists::
 
         AVL<7
 
@@ -1521,48 +1523,64 @@ def generate_red_comments(sheet1_data, heatmap_df, odriv_details,
         # Collect comment parts for each RED reason.
         all_parts = []
 
-        has_p1_red = driv_p1 == "RED" or resp_p1 == "RED"
-
-        # If AVL < threshold and there is NO P1 RED, use AVL<7 as the reason.
-        if avl_below and not has_p1_red:
-            all_parts.append("AVL<7")
-
-        # Only look up ODRIV detail comments when we have detail data.
-        if odriv_details and has_p1_red:
-            # Find the matching detail sheet (base Drivability name).
+        # --- Look up ODRIV detail events first -------------------------
+        # We always try to find Red P1 events in the detail data so that
+        # we can detect a Red P1 reason even when the sheet-level
+        # driv_p1/resp_p1 fields do not say "RED".
+        detail_red_found = False
+        if odriv_details:
             matched_sheet = _match_sheet_to_operation(
                 base_sheet_names, section, op_name
             )
 
-            for reason, is_red, detail_key in [
+            for reason, sheet_p1_red, detail_key in [
                 ("Red P1 Drivability", driv_p1 == "RED",
                  matched_sheet),
                 ("Red P1 Responsiveness", resp_p1 == "RED",
                  f"{matched_sheet}__resp" if matched_sheet else None),
             ]:
-                if not is_red:
-                    continue
-
-                parts = [reason]
-
-                # Try to enrich with criteria/file from the detail events.
-                events = odriv_details.get(detail_key, []) if detail_key else []
+                events = (
+                    odriv_details.get(detail_key, []) if detail_key
+                    else []
+                )
                 red_p1_events = [
                     e for e in events
                     if e.get("priority") == 1
                     and str(e.get("rating", "")).lower().startswith("red")
                     and e.get("value") is not None
                 ]
+
+                # A reason applies when the sheet-level P1 is RED *or*
+                # when the ODRIV detail data contains Red P1 events.
+                if not sheet_p1_red and not red_p1_events:
+                    continue
+
+                detail_red_found = True
+                parts = [reason]
+
                 if red_p1_events:
                     lowest = min(red_p1_events, key=lambda e: e["value"])
                     criteria = lowest.get("criteria", "")
-                    file_prefix = _extract_file_prefix(lowest.get("file", ""))
+                    file_prefix = _extract_file_prefix(
+                        lowest.get("file", "")
+                    )
                     if criteria:
                         parts.append(criteria)
                     if file_prefix:
                         parts.append(file_prefix)
 
                 all_parts.append(", ".join(parts))
+
+        # Also honour the sheet-level P1 flags when there are no
+        # odriv_details at all (e.g. detail sheets not uploaded).
+        has_p1_red = (
+            driv_p1 == "RED" or resp_p1 == "RED" or detail_red_found
+        )
+
+        # If AVL < threshold and there is NO Red P1 reason at all,
+        # use AVL<7 as the sole comment.
+        if avl_below and not has_p1_red:
+            all_parts.append("AVL<7")
 
         if all_parts:
             comments[op_code] = " | ".join(all_parts)
