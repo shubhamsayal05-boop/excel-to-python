@@ -78,8 +78,8 @@ def main():
         [
             "📋 AVL Data Input",
             "📊 Odriv Data Input",
-            "🔥 HeatMap",
             "📈 Run Evaluation And Result",
+            "🔥 HeatMap",
             "📖 Help & Reference",
         ],
     )
