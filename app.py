@@ -744,9 +744,23 @@ def _build_heatmap_html(df, vehicle_names, target_label):
 
     rows_html = []
 
-    # --- Row 1: "Target Vehicle" label – hidden per user request ---
-    # The row is kept in the code but not rendered so the codes and
-    # "Target Vehicle" / "Tested Vehicle" header stay invisible.
+    # --- Row 1: "Target Vehicle" / "Tested Vehicle" labels above vehicle columns ---
+    r1 = '<tr>'
+    r1 += '<td class="hm-code"></td>'  # Op Code (hidden)
+    r1 += '<td class="hm-hdr" style="border:none;background:transparent;"></td>'  # Op Mode
+    for i, vname in enumerate(vehicle_cols):
+        r1 += '<td class="hm-sep"></td>'  # separator
+        if i == 0:
+            r1 += '<td class="hm-target">Target Vehicle</td>'
+        elif i == 1:
+            r1 += '<td class="hm-target">Tested Vehicle</td>'
+        else:
+            r1 += '<td style="border:none;background:transparent;"></td>'
+    if has_status:
+        r1 += '<td style="border:none;background:transparent;"></td>'
+        r1 += '<td style="border:none;background:transparent;"></td>'
+    r1 += '</tr>'
+    rows_html.append(r1)
 
     # --- Row 2: Column headers with vehicle names ---
     r2 = '<tr>'
