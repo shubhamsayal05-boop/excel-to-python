@@ -1115,7 +1115,7 @@ def _parse_detail_sheet(ws):
     wide_criteria_cols = {}  # {col_idx: header_text}
     is_wide = "criteria" not in col_map or "value" not in col_map
 
-    if is_wide:
+    if is_wide and header_row < (ws.max_row or header_row):
         claimed = set(col_map.values())
         for col_idx, header_text in row_vals_at_header.items():
             if col_idx in claimed:
