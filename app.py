@@ -859,12 +859,22 @@ def _build_heatmap_html(df, vehicle_names, target_label):
     return table
 
 
-def _build_jpg_capture_html(heatmap_html):
-    """Wrap heatmap HTML with html2canvas to auto-capture the table as JPG."""
+def _build_jpg_capture_html(heatmap_html, rows_per_page=50):
+    """Wrap heatmap HTML with html2canvas to auto-capture the table as JPG.
+
+    For large tables the data rows are split into pages of *rows_per_page*
+    rows each.  The 3-row header (target/tested labels, column names, DR row)
+    is repeated at the top of every page so each image is self-contained –
+    just like the Excel "export as image" feature.
+
+    Small tables (≤ rows_per_page data rows) are exported as a single JPG.
+    """
     return f"""<!DOCTYPE html>
 <html>
 <head>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js" integrity="sha384-njM16rDpD+s/COM24kTx5cDIeEJD7BqXc9EjoP6KDAdAm8YGtS+wGGyRyvE4s46F" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"
+        integrity="sha384-njM16rDpD+s/COM24kTx5cDIeEJD7BqXc9EjoP6KDAdAm8YGtS+wGGyRyvE4s46F"
+        crossorigin="anonymous"></script>
 </head>
 <body style="margin:0;padding:0;">
 <div id="capture-wrapper" style="position:fixed;left:-9999px;top:0;">
@@ -874,14 +884,31 @@ def _build_jpg_capture_html(heatmap_html):
 ⏳ Generating JPG, please wait…
 </p>
 <script>
-window.addEventListener('load', function() {{
-    setTimeout(function() {{
-        var table = document.querySelector('.hm-table');
-        if (!table) {{
-            document.getElementById('status').textContent = '❌ Table not found.';
-            return;
-        }}
-        html2canvas(table, {{
+(function() {{
+    var ROWS_PER_PAGE = {rows_per_page};
+    var HEADER_ROW_COUNT = 3;  // target/tested row, column-names row, DR row
+
+    function makeTimestamp() {{
+        var d = new Date();
+        return d.getFullYear().toString()
+            + ('0'+(d.getMonth()+1)).slice(-2)
+            + ('0'+d.getDate()).slice(-2) + '_'
+            + ('0'+d.getHours()).slice(-2)
+            + ('0'+d.getMinutes()).slice(-2)
+            + ('0'+d.getSeconds()).slice(-2);
+    }}
+
+    function triggerDownload(blob, filename) {{
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }}
+
+    function captureTable(tableEl) {{
+        return html2canvas(tableEl, {{
             backgroundColor: '#FFFFFF',
             scale: 2,
             logging: false,
@@ -890,32 +917,92 @@ window.addEventListener('load', function() {{
             scrollY: 0,
             x: 0,
             y: 0,
-            width: table.scrollWidth,
-            height: table.scrollHeight,
-            windowWidth: table.scrollWidth + 40,
-            windowHeight: table.scrollHeight + 40
-        }}).then(function(canvas) {{
-            canvas.toBlob(function(blob) {{
-                var a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                var now = new Date();
-                var stamp = now.getFullYear().toString()
-                    + ('0'+(now.getMonth()+1)).slice(-2)
-                    + ('0'+now.getDate()).slice(-2) + '_'
-                    + ('0'+now.getHours()).slice(-2)
-                    + ('0'+now.getMinutes()).slice(-2)
-                    + ('0'+now.getSeconds()).slice(-2);
-                a.download = 'heatmap_' + stamp + '.jpg';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                document.getElementById('status').textContent = '✅ JPG downloaded!';
-            }}, 'image/jpeg', 0.95);
-        }}).catch(function(err) {{
-            document.getElementById('status').textContent = '❌ Error: ' + err.message;
+            width: tableEl.scrollWidth,
+            height: tableEl.scrollHeight,
+            windowWidth: tableEl.scrollWidth + 40,
+            windowHeight: tableEl.scrollHeight + 40
         }});
-    }}, 500);
-}});
+    }}
+
+    /* Build a sub-table containing *headerRows* + *dataRows* and append it
+       to *container* so html2canvas can render it. */
+    function buildPageTable(original, headerRows, dataRows, container) {{
+        var tbl = original.cloneNode(false);  // clone <table> tag only
+        for (var h = 0; h < headerRows.length; h++) {{
+            tbl.appendChild(headerRows[h].cloneNode(true));
+        }}
+        for (var d = 0; d < dataRows.length; d++) {{
+            tbl.appendChild(dataRows[d].cloneNode(true));
+        }}
+        container.appendChild(tbl);
+        return tbl;
+    }}
+
+    window.addEventListener('load', function() {{
+        setTimeout(function() {{
+            var table = document.querySelector('.hm-table');
+            if (!table) {{
+                document.getElementById('status').textContent = '❌ Table not found.';
+                return;
+            }}
+
+            var allRows = Array.prototype.slice.call(table.querySelectorAll('tr'));
+            var headerRows = allRows.slice(0, HEADER_ROW_COUNT);
+            var dataRows   = allRows.slice(HEADER_ROW_COUNT);
+
+            /* If the table is small enough, export as a single image */
+            if (dataRows.length <= ROWS_PER_PAGE) {{
+                captureTable(table).then(function(canvas) {{
+                    canvas.toBlob(function(blob) {{
+                        triggerDownload(blob, 'heatmap_' + makeTimestamp() + '.jpg');
+                        document.getElementById('status').textContent = '✅ JPG downloaded!';
+                    }}, 'image/jpeg', 0.95);
+                }}).catch(function(err) {{
+                    document.getElementById('status').textContent = '❌ Error: ' + err.message;
+                }});
+                return;
+            }}
+
+            /* Split into pages */
+            var pages = [];
+            for (var i = 0; i < dataRows.length; i += ROWS_PER_PAGE) {{
+                pages.push(dataRows.slice(i, i + ROWS_PER_PAGE));
+            }}
+
+            var container = document.getElementById('capture-wrapper');
+            var stamp = makeTimestamp();
+            var totalPages = pages.length;
+            var statusEl = document.getElementById('status');
+            statusEl.textContent = '⏳ Generating page 1 of ' + totalPages + '…';
+
+            /* Process pages sequentially so the browser stays responsive */
+            var idx = 0;
+            function nextPage() {{
+                if (idx >= totalPages) {{
+                    statusEl.textContent = '✅ ' + totalPages + ' JPG(s) downloaded!';
+                    return;
+                }}
+                statusEl.textContent = '⏳ Generating page ' + (idx + 1) + ' of ' + totalPages + '…';
+                var pageTbl = buildPageTable(table, headerRows, pages[idx], container);
+                /* Small delay to let the DOM render before capture */
+                setTimeout(function() {{
+                    captureTable(pageTbl).then(function(canvas) {{
+                        canvas.toBlob(function(blob) {{
+                            var suffix = totalPages === 1 ? '' : '_page' + (idx + 1);
+                            triggerDownload(blob, 'heatmap_' + stamp + suffix + '.jpg');
+                            container.removeChild(pageTbl);
+                            idx++;
+                            nextPage();
+                        }}, 'image/jpeg', 0.95);
+                    }}).catch(function(err) {{
+                        statusEl.textContent = '❌ Error on page ' + (idx + 1) + ': ' + err.message;
+                    }});
+                }}, 200);
+            }}
+            nextPage();
+        }}, 500);
+    }});
+}})();
 </script>
 </body>
 </html>"""
