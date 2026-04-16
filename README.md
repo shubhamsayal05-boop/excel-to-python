@@ -15,10 +15,10 @@ This tool evaluates vehicle drivability and responsiveness by:
 
 | Excel Feature | Python Equivalent |
 |---|---|
-| HeatMap Sheet (data display) | 🔥 HeatMap View page with color-coded scores |
-| Data Transfer Sheet → HeatMap | 📋 HeatMap Data Input with auto-transfer |
-| Sheet1 (Drivability/Responsiveness) | 📊 Sheet1 Data Input with dot color encoding |
-| Evaluation Results sheet | 📈 Evaluation Results with full status logic |
+| HeatMap Sheet (data display) | 🔥 HeatMap page with color-coded scores |
+| Data Transfer Sheet → HeatMap | 📋 AVL Data Input with auto-transfer |
+| Sheet1 (Drivability/Responsiveness) | 📊 Odriv Data Input with dot color encoding |
+| Evaluation Results sheet | 📈 Run Evaluation And Result with full status logic |
 | RefreshHeatmap macro | Automatic data transfer on import |
 | EvaluateAVLStatus macro | Run Evaluation button with all rules |
 | BuildUniqueOverallStatus | Overall Status by Op Code summary |
@@ -53,7 +53,7 @@ The application will open in your browser at `http://localhost:8501`.
 
 ### Step 1: Load HeatMap Data
 
-1. Navigate to **📋 HeatMap Data Input**
+1. Navigate to **📋 AVL Data Input**
 2. Copy the data from your Excel **Data Transfer Sheet** (or HeatMap Sheet)
 3. Paste the tab-separated data into the text area
 4. Click **🔄 Process HeatMap Data**
@@ -69,7 +69,7 @@ The application will open in your browser at `http://localhost:8501`.
 
 ### Step 2: Load Sheet1 Data
 
-1. Navigate to **📊 Sheet1 Data Input**
+1. Navigate to **📊 Odriv Data Input**
 2. Copy your Sheet1 data from Excel
 3. **Encode dot colors as text** since colors can't be pasted:
    - `G` = Green ●
@@ -81,14 +81,14 @@ The application will open in your browser at `http://localhost:8501`.
 
 ### Step 3: View HeatMap
 
-1. Navigate to **🔥 HeatMap View**
+1. Navigate to **🔥 HeatMap**
 2. Select Target and Tested vehicles
 3. Toggle "Hide rows without tested vehicle data" as needed
 4. Scores are color-coded: Green (≥8), Yellow (≥7), Red (<7)
 
 ### Step 4: Run Evaluation
 
-1. Navigate to **📈 Evaluation Results**
+1. Navigate to **📈 Run Evaluation And Result**
 2. Confirm Target and Tested vehicle names
 3. Click **🔄 Run Evaluation**
 4. Review:

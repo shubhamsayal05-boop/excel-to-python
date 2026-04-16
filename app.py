@@ -70,31 +70,31 @@ def main():
     page = st.sidebar.radio(
         "Select Page",
         [
-            "📋 HeatMap Data Input",
-            "📊 Sheet1 Data Input",
-            "🔥 HeatMap View",
-            "📈 Evaluation Results",
+            "📋 AVL Data Input",
+            "📊 Odriv Data Input",
+            "🔥 HeatMap",
+            "📈 Run Evaluation And Result",
             "📖 Help & Reference",
         ],
     )
 
-    if page == "📋 HeatMap Data Input":
+    if page == "📋 AVL Data Input":
         heatmap_input_page()
-    elif page == "📊 Sheet1 Data Input":
+    elif page == "📊 Odriv Data Input":
         sheet1_input_page()
-    elif page == "🔥 HeatMap View":
+    elif page == "🔥 HeatMap":
         heatmap_view_page()
-    elif page == "📈 Evaluation Results":
+    elif page == "📈 Run Evaluation And Result":
         evaluation_results_page()
     elif page == "📖 Help & Reference":
         help_page()
 
 
 # ============================================================================
-# Page: HeatMap Data Input
+# Page: AVL Data Input
 # ============================================================================
 def heatmap_input_page():
-    st.header("📋 HeatMap Data Input")
+    st.header("📋 AVL Data Input")
     st.markdown("""
     Paste your **Data Transfer Sheet** data here. This is the data with AVL-DRIVE
     ratings for each vehicle and operation mode.
@@ -180,10 +180,10 @@ def heatmap_input_page():
 
 
 # ============================================================================
-# Page: Sheet1 Data Input
+# Page: Odriv Data Input
 # ============================================================================
 def sheet1_input_page():
-    st.header("📊 Sheet1 Data Input (Drivability / Responsiveness)")
+    st.header("📊 Odriv Data Input (Drivability / Responsiveness)")
     st.markdown("""
     Load your **Sheet1** data containing the Drivability and Responsiveness
     evaluation data with colored dot statuses.
@@ -302,13 +302,13 @@ def sheet1_input_page():
 
 
 # ============================================================================
-# Page: HeatMap View
+# Page: HeatMap
 # ============================================================================
 def heatmap_view_page():
-    st.header("🔥 HeatMap View")
+    st.header("🔥 HeatMap")
 
     if "heatmap_data" not in st.session_state:
-        st.info("ℹ️ No heatmap data loaded. Go to **HeatMap Data Input** to load data.")
+        st.info("ℹ️ No heatmap data loaded. Go to **AVL Data Input** to load data.")
         return
 
     heatmap_df = st.session_state["heatmap_data"]
@@ -375,13 +375,13 @@ def heatmap_view_page():
 
 
 # ============================================================================
-# Page: Evaluation Results
+# Page: Run Evaluation And Result
 # ============================================================================
 def evaluation_results_page():
-    st.header("📈 Evaluation Results")
+    st.header("📈 Run Evaluation And Result")
 
     if "sheet1_data" not in st.session_state:
-        st.info("ℹ️ No Sheet1 data loaded. Go to **Sheet1 Data Input** to load data.")
+        st.info("ℹ️ No Odriv data loaded. Go to **Odriv Data Input** to load data.")
         return
 
     sheet1_data = st.session_state["sheet1_data"]
