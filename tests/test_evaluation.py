@@ -966,41 +966,6 @@ class TestGenerateRedComments:
         assert "AVL<7" not in comment
         assert "Red P1 Drivability" in comment
 
-    def test_avl_below_7_with_odriv_red_p1_suppresses_avl(self):
-        """When AVL<7 and ODRIV detail has Red P1 events (even if sheet-level
-        driv_p1 is not RED), comment should show Red P1 reason, not AVL<7."""
-        from evaluation_engine import generate_red_comments
-
-        sheet1_data = {
-            "operations": [
-                {
-                    "op_code": 10101300,
-                    "operation": "Drive away",
-                    "section": "Drive away",
-                    "driv_p1": "GREEN",
-                    "resp_p1": "GREEN",
-                },
-            ]
-        }
-        heatmap_df = pd.DataFrame()
-        odriv_details = {
-            "Drive away": [
-                {"file": "F_Normal_X", "criteria": "Bump", "priority": 1,
-                 "rating": "Red", "value": 5.5},
-            ]
-        }
-        eval_results_df = pd.DataFrame([
-            {"Op Code": 10101300, "Tested AVL": 5.5},
-        ])
-        result = generate_red_comments(
-            sheet1_data, heatmap_df, odriv_details,
-            eval_results_df=eval_results_df,
-        )
-        comment = result[10101300]
-        assert "AVL<7" not in comment
-        assert "Red P1 Drivability" in comment
-        assert "Bump" in comment
-
     def test_avl_at_7_no_avl_comment(self):
         """When AVL == 7 (exactly at threshold), no 'AVL<7' comment."""
         from evaluation_engine import generate_red_comments
@@ -1044,6 +1009,47 @@ class TestGenerateRedComments:
             sheet1_data, pd.DataFrame(), None,
         )
         assert 10101300 not in result
+
+    def test_shared_op_code_na_does_not_overwrite_red_p1(self):
+        """When two operations share the same op_code (e.g. "Vehicle Stop"
+        and "Vehicle Stop - Cold"), the N/A Cold variant must not overwrite
+        a Red P1 comment with AVL<7."""
+        from evaluation_engine import generate_red_comments
+
+        sheet1_data = {
+            "operations": [
+                {
+                    "op_code": 10451400,
+                    "operation": "Vehicle Stop",
+                    "section": "Vehicle Stop",
+                    "driv_p1": "RED",
+                    "resp_p1": "N/A",
+                },
+                {
+                    "op_code": 10451400,
+                    "operation": "Vehicle Stop - Cold",
+                    "section": "Vehicle Stop",
+                    "driv_p1": "N/A",
+                    "resp_p1": "N/A",
+                },
+            ]
+        }
+        odriv_details = {
+            "Vehicle Stop": [
+                {"file": "F_Normal_X", "criteria": "Bump", "priority": 1,
+                 "rating": "Red", "value": 5.0},
+            ]
+        }
+        eval_results_df = pd.DataFrame([
+            {"Op Code": 10451400, "Tested AVL": 6.7},
+        ])
+        result = generate_red_comments(
+            sheet1_data, pd.DataFrame(), odriv_details,
+            eval_results_df=eval_results_df,
+        )
+        comment = result[10451400]
+        assert "AVL<7" not in comment
+        assert "Red P1 Drivability" in comment
 
 
 # ============================================================================
