@@ -615,18 +615,15 @@ def detect_data_mismatches(sheet1_data, heatmap_df):
 
     # Collect sub-operation codes from AVL heatmap data
     avl_ops = {}  # op_code -> op_name
+    vehicle_cols = [
+        c for c in heatmap_df.columns
+        if c not in ("Op Code", "Operation Mode", "Status", "Comments")
+    ]
     for _, row in heatmap_df.iterrows():
         code = row["Op Code"]
         if code not in PARENT_OPERATION_CODES:
             # Only count rows that have at least one non-null vehicle score
-            vehicle_cols = [
-                c for c in heatmap_df.columns
-                if c not in ("Op Code", "Operation Mode", "Status", "Comments")
-            ]
-            has_data = any(
-                pd.notna(row.get(vc)) and row.get(vc) not in (None, 0, 0.0)
-                for vc in vehicle_cols
-            )
+            has_data = any(pd.notna(row.get(vc)) for vc in vehicle_cols)
             if has_data:
                 avl_ops[code] = row.get("Operation Mode", "")
 
