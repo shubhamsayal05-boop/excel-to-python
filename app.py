@@ -470,7 +470,8 @@ def heatmap_view_page():
     target_label = target_vehicle or "Target Vehicle"
 
     # Render the Excel-style HTML heatmap
-    html = _build_heatmap_html(display_df, vehicle_names, target_label)
+    html = _build_heatmap_html(display_df, vehicle_names, target_label,
+                               target_vehicle=target_vehicle, tested_vehicle=tested_vehicle)
     st.markdown(html, unsafe_allow_html=True)
 
     # Export
@@ -511,7 +512,8 @@ def heatmap_view_page():
 
     # Generate the JPG image(s) server-side with matplotlib (instant, no
     # html2canvas).  Render once and offer download buttons.
-    jpg_buf = _render_heatmap_image(display_df, vehicle_names, target_label)
+    jpg_buf = _render_heatmap_image(display_df, vehicle_names, target_label,
+                                    target_vehicle=target_vehicle, tested_vehicle=tested_vehicle)
 
     if split_choice == "No split (single image)":
         st.download_button(
@@ -885,7 +887,7 @@ def _comments_td(row, has_comments):
     return '<td class="hm-comments"></td>'
 
 
-def _build_heatmap_html(df, vehicle_names, target_label):
+def _build_heatmap_html(df, vehicle_names, target_label, target_vehicle=None, tested_vehicle=None):
     """
     Build an HTML table that replicates the exact look of the Excel HeatMap
     Sheet.
@@ -979,9 +981,9 @@ def _build_heatmap_html(df, vehicle_names, target_label):
     r1 += '<td class="hm-hdr" style="border:none;background:transparent;"></td>'  # Op Mode
     for i, vname in enumerate(vehicle_cols):
         r1 += '<td class="hm-sep"></td>'  # separator
-        if i == 0:
+        if target_vehicle and vname == target_vehicle:
             r1 += '<td class="hm-target">Target Vehicle</td>'
-        elif i == 1:
+        elif tested_vehicle and vname == tested_vehicle:
             r1 += '<td class="hm-target">Tested Vehicle</td>'
         else:
             r1 += '<td style="border:none;background:transparent;"></td>'
@@ -1088,7 +1090,7 @@ def _hex_to_rgb(hex_color):
     return (int(h[0:2], 16) / 255, int(h[2:4], 16) / 255, int(h[4:6], 16) / 255)
 
 
-def _render_heatmap_image(df, vehicle_names, target_label):
+def _render_heatmap_image(df, vehicle_names, target_label, target_vehicle=None, tested_vehicle=None):
     """Render the heatmap DataFrame as a JPG byte buffer using matplotlib.
 
     This replaces the previous html2canvas approach which hung indefinitely
@@ -1197,7 +1199,13 @@ def _render_heatmap_image(df, vehicle_names, target_label):
         vw = veh_col_widths[i]
         draw_sep(cx, y0, ROW_H)
         cx += SEP_W
-        label = "Target Vehicle" if i == 0 else ("Tested Vehicle" if i == 1 else "")
+        vname = vehicle_cols[i]
+        if target_vehicle and vname == target_vehicle:
+            label = "Target Vehicle"
+        elif tested_vehicle and vname == tested_vehicle:
+            label = "Tested Vehicle"
+        else:
+            label = ""
         draw_cell(cx, y0, vw, ROW_H, white_bg, label, bold=True, fontsize=VEH_HDR_FONT)
         cx += vw
     if has_status:
