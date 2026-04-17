@@ -582,6 +582,66 @@ def parse_odriv_from_excel(file_obj):
     }
 
 
+def detect_data_mismatches(sheet1_data, heatmap_df):
+    """Detect sub-operation modes present in AVL data but not ODRIV, and vice versa.
+
+    Only sub-operation codes (i.e. codes *not* in ``PARENT_OPERATION_CODES``)
+    are compared because parent rows are group headers that may not carry
+    actual data in both sources.
+
+    Args:
+        sheet1_data: dict from ``parse_sheet1_data()`` (ODRIV data).
+        heatmap_df: DataFrame from the heatmap (AVL data).
+
+    Returns:
+        dict with two keys:
+            ``avl_only``  – list of ``(op_code, op_name)`` tuples found in AVL
+                            heatmap but missing from ODRIV data.
+            ``odriv_only`` – list of ``(op_code, op_name)`` tuples found in
+                             ODRIV data but missing from AVL heatmap.
+    """
+    avl_only = []
+    odriv_only = []
+
+    if sheet1_data is None or heatmap_df is None or heatmap_df.empty:
+        return {"avl_only": avl_only, "odriv_only": odriv_only}
+
+    # Collect sub-operation codes from ODRIV (sheet1) data
+    odriv_ops = {}  # op_code -> op_name
+    for op in sheet1_data.get("operations", []):
+        code = op["op_code"]
+        if code not in PARENT_OPERATION_CODES:
+            odriv_ops[code] = op.get("operation", "")
+
+    # Collect sub-operation codes from AVL heatmap data
+    avl_ops = {}  # op_code -> op_name
+    for _, row in heatmap_df.iterrows():
+        code = row["Op Code"]
+        if code not in PARENT_OPERATION_CODES:
+            # Only count rows that have at least one non-null vehicle score
+            vehicle_cols = [
+                c for c in heatmap_df.columns
+                if c not in ("Op Code", "Operation Mode", "Status", "Comments")
+            ]
+            has_data = any(
+                pd.notna(row.get(vc)) and row.get(vc) not in (None, 0, 0.0)
+                for vc in vehicle_cols
+            )
+            if has_data:
+                avl_ops[code] = row.get("Operation Mode", "")
+
+    # Find mismatches
+    for code in sorted(avl_ops.keys() - odriv_ops.keys()):
+        name = avl_ops[code]
+        avl_only.append((code, name))
+
+    for code in sorted(odriv_ops.keys() - avl_ops.keys()):
+        name = odriv_ops[code]
+        odriv_only.append((code, name))
+
+    return {"avl_only": avl_only, "odriv_only": odriv_only}
+
+
 def evaluate_avl_status(sheet1_data, heatmap_df, target_car, tested_car):
     """
     Main evaluation function.

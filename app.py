@@ -53,6 +53,7 @@ from evaluation_engine import (
     parse_sheet1_from_excel,
     parse_odriv_from_excel,
     parse_odriv_detail_sheets,
+    detect_data_mismatches,
     evaluate_avl_status,
     build_overall_status,
     update_sub_operation_heatmap,
@@ -602,6 +603,23 @@ def evaluation_results_page():
             st.session_state["eval_target_car_name"] = target_car
             st.session_state["eval_tested_car_name"] = tested_car
             st.success(f"✅ Evaluation complete! {len(eval_results)} operations evaluated.")
+
+            # Check for data mismatches between AVL and ODRIV
+            mismatches = detect_data_mismatches(sheet1_data, heatmap_df)
+            if mismatches["avl_only"]:
+                items = ", ".join(
+                    f"**{name}** ({code})" for code, name in mismatches["avl_only"]
+                )
+                st.warning(
+                    f"⚠️ The following sub-operations have **AVL data but no ODRIV data**: {items}"
+                )
+            if mismatches["odriv_only"]:
+                items = ", ".join(
+                    f"**{name}** ({code})" for code, name in mismatches["odriv_only"]
+                )
+                st.warning(
+                    f"⚠️ The following sub-operations have **ODRIV data but no AVL data**: {items}"
+                )
 
     # Display results
     if "eval_results" in st.session_state and not st.session_state["eval_results"].empty:
