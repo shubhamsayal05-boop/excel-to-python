@@ -15,6 +15,8 @@ from evaluation_engine import (
     _bench_diff,
     _to_float,
     _parse_dot_status,
+    _odriv_op_has_data,
+    detect_data_mismatches,
     evaluate_avl_status,
     build_overall_status,
     calculate_group_status,
@@ -1202,3 +1204,128 @@ class TestParseDetailSheetWideFormat:
         # Should pick "Brake release bump" (7.5) not Throttle/EM Speed (0)
         assert e["criteria"] == "Brake release bump"
         assert e["value"] == 7.5
+
+
+# ============================================================================
+# Tests for _odriv_op_has_data
+# ============================================================================
+class TestOdrivOpHasData:
+    def test_op_with_green_dot_has_data(self):
+        op = {"driv_p1": "GREEN", "driv_p2": "N/A", "driv_p3": "N/A",
+              "resp_p1": "N/A", "resp_p2": "N/A", "resp_p3": "N/A",
+              "driv_tested": None, "driv_target": None,
+              "resp_tested": None, "resp_target": None}
+        assert _odriv_op_has_data(op) is True
+
+    def test_op_with_percentage_has_data(self):
+        op = {"driv_p1": "N/A", "driv_p2": "N/A", "driv_p3": "N/A",
+              "resp_p1": "N/A", "resp_p2": "N/A", "resp_p3": "N/A",
+              "driv_tested": 85.0, "driv_target": None,
+              "resp_tested": None, "resp_target": None}
+        assert _odriv_op_has_data(op) is True
+
+    def test_op_all_na_has_no_data(self):
+        op = {"driv_p1": "N/A", "driv_p2": "N/A", "driv_p3": "N/A",
+              "resp_p1": "N/A", "resp_p2": "N/A", "resp_p3": "N/A",
+              "driv_tested": None, "driv_target": None,
+              "resp_tested": None, "resp_target": None}
+        assert _odriv_op_has_data(op) is False
+
+    def test_empty_op_has_no_data(self):
+        assert _odriv_op_has_data({}) is False
+
+
+# ============================================================================
+# Tests for detect_data_mismatches
+# ============================================================================
+class TestDetectDataMismatches:
+    def _make_sheet1(self, ops):
+        return {"target_car": "T", "tested_car": "V", "sections": [], "operations": ops}
+
+    def _make_heatmap(self, rows):
+        return pd.DataFrame(rows)
+
+    def test_avl_drive_rating_header_excluded(self):
+        """10000000 AVL-DRIVE Rating should never appear in mismatches."""
+        sheet1 = self._make_sheet1([])
+        heatmap = self._make_heatmap([
+            {"Op Code": 10000000, "Operation Mode": "AVL-DRIVE Rating", "Car1": 8.3},
+        ])
+        result = detect_data_mismatches(sheet1, heatmap)
+        assert result["avl_only"] == []
+        assert result["odriv_only"] == []
+
+    def test_odriv_only_op_without_data_excluded(self):
+        """An ODRIV op with all N/A dots and no percentages should NOT show."""
+        empty_op = {
+            "op_code": 10550100, "operation": "Motor engage",
+            "driv_p1": "N/A", "driv_p2": "N/A", "driv_p3": "N/A",
+            "resp_p1": "N/A", "resp_p2": "N/A", "resp_p3": "N/A",
+            "driv_tested": None, "driv_target": None,
+            "resp_tested": None, "resp_target": None,
+            "section": "Motor",
+        }
+        sheet1 = self._make_sheet1([empty_op])
+        heatmap = self._make_heatmap([
+            {"Op Code": 10101300, "Operation Mode": "Creep", "Car1": 7.5},
+        ])
+        result = detect_data_mismatches(sheet1, heatmap)
+        # 10550100 should NOT show as odriv_only because it has no data
+        assert all(code != 10550100 for code, _ in result["odriv_only"])
+
+    def test_odriv_only_op_with_data_included(self):
+        """An ODRIV op with actual data that is missing from AVL should show."""
+        op_with_data = {
+            "op_code": 10451400, "operation": "Vehicle stop",
+            "driv_p1": "GREEN", "driv_p2": "N/A", "driv_p3": "N/A",
+            "resp_p1": "N/A", "resp_p2": "N/A", "resp_p3": "N/A",
+            "driv_tested": 90.0, "driv_target": 85.0,
+            "resp_tested": None, "resp_target": None,
+            "section": "Vehicle stationary",
+        }
+        sheet1 = self._make_sheet1([op_with_data])
+        heatmap = self._make_heatmap([
+            {"Op Code": 10101300, "Operation Mode": "Creep", "Car1": 7.5},
+        ])
+        result = detect_data_mismatches(sheet1, heatmap)
+        assert (10451400, "Vehicle stop") in result["odriv_only"]
+
+    def test_parent_codes_excluded(self):
+        """Parent operation codes should never appear in mismatches."""
+        parent_op = {
+            "op_code": 10100000, "operation": "Drive away",
+            "driv_p1": "GREEN", "driv_p2": "N/A", "driv_p3": "N/A",
+            "resp_p1": "N/A", "resp_p2": "N/A", "resp_p3": "N/A",
+            "driv_tested": 80.0, "driv_target": 75.0,
+            "resp_tested": None, "resp_target": None,
+            "section": "Drive away",
+        }
+        sheet1 = self._make_sheet1([parent_op])
+        heatmap = self._make_heatmap([
+            {"Op Code": 10100000, "Operation Mode": "Drive away", "Car1": 8.0},
+        ])
+        result = detect_data_mismatches(sheet1, heatmap)
+        assert result["avl_only"] == []
+        assert result["odriv_only"] == []
+
+    def test_matched_ops_no_mismatch(self):
+        """Operations present in both sources should not appear as mismatches."""
+        op = {
+            "op_code": 10101300, "operation": "Creep",
+            "driv_p1": "GREEN", "driv_p2": "N/A", "driv_p3": "N/A",
+            "resp_p1": "N/A", "resp_p2": "N/A", "resp_p3": "N/A",
+            "driv_tested": 80.0, "driv_target": None,
+            "resp_tested": None, "resp_target": None,
+            "section": "Drive away",
+        }
+        sheet1 = self._make_sheet1([op])
+        heatmap = self._make_heatmap([
+            {"Op Code": 10101300, "Operation Mode": "Creep", "Car1": 7.5},
+        ])
+        result = detect_data_mismatches(sheet1, heatmap)
+        assert result["avl_only"] == []
+        assert result["odriv_only"] == []
+
+    def test_none_and_empty_inputs(self):
+        assert detect_data_mismatches(None, None) == {"avl_only": [], "odriv_only": []}
+        assert detect_data_mismatches(None, pd.DataFrame()) == {"avl_only": [], "odriv_only": []}

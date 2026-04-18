@@ -582,12 +582,37 @@ def parse_odriv_from_excel(file_obj):
     }
 
 
+def _odriv_op_has_data(op):
+    """Return True if an ODRIV operation carries at least one real data value.
+
+    An operation is considered to have data when it has any non-N/A dot status
+    or any non-None numeric percentage value.
+    """
+    for key in ("driv_p1", "driv_p2", "driv_p3", "resp_p1", "resp_p2", "resp_p3"):
+        val = op.get(key)
+        if val is not None and val != "N/A":
+            return True
+    for key in ("driv_tested", "driv_target", "resp_tested", "resp_target"):
+        val = op.get(key)
+        if val is not None:
+            return True
+    return False
+
+
+# Codes to ignore in mismatch detection – parent / group-header rows and
+# the overall AVL-DRIVE Rating header (10000000).
+_MISMATCH_IGNORE_CODES = PARENT_OPERATION_CODES | {10000000}
+
+
 def detect_data_mismatches(sheet1_data, heatmap_df):
     """Detect sub-operation modes present in AVL data but not ODRIV, and vice versa.
 
-    Only sub-operation codes (i.e. codes *not* in ``PARENT_OPERATION_CODES``)
-    are compared because parent rows are group headers that may not carry
-    actual data in both sources.
+    Only sub-operation codes (i.e. codes *not* in ``PARENT_OPERATION_CODES``
+    and not the AVL-DRIVE Rating header ``10000000``) are compared because
+    parent/header rows are group headers that may not carry actual data in
+    both sources.  Additionally, operations that exist in a source but carry
+    no real data values are excluded so that empty placeholder rows do not
+    trigger false-positive warnings.
 
     Args:
         sheet1_data: dict from ``parse_sheet1_data()`` (ODRIV data).
@@ -610,7 +635,7 @@ def detect_data_mismatches(sheet1_data, heatmap_df):
     odriv_ops = {}  # op_code -> op_name
     for op in sheet1_data.get("operations", []):
         code = op["op_code"]
-        if code not in PARENT_OPERATION_CODES:
+        if code not in _MISMATCH_IGNORE_CODES and _odriv_op_has_data(op):
             odriv_ops[code] = op.get("operation", "")
 
     # Collect sub-operation codes from AVL heatmap data
@@ -621,7 +646,7 @@ def detect_data_mismatches(sheet1_data, heatmap_df):
     ]
     for _, row in heatmap_df.iterrows():
         code = row["Op Code"]
-        if code not in PARENT_OPERATION_CODES:
+        if code not in _MISMATCH_IGNORE_CODES:
             # Only count rows that have at least one non-null vehicle score
             has_data = any(pd.notna(row.get(vc)) for vc in vehicle_cols)
             if has_data:
