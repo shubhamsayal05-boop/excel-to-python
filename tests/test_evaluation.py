@@ -1234,6 +1234,14 @@ class TestOdrivOpHasData:
     def test_empty_op_has_no_data(self):
         assert _odriv_op_has_data({}) is False
 
+    def test_op_all_na_with_zero_percentages_has_no_data(self):
+        """_to_float returns 0.0 for empty cells; 0.0 should be treated as no data."""
+        op = {"driv_p1": "N/A", "driv_p2": "N/A", "driv_p3": "N/A",
+              "resp_p1": "N/A", "resp_p2": "N/A", "resp_p3": "N/A",
+              "driv_tested": 0.0, "driv_target": 0.0,
+              "resp_tested": 0.0, "resp_target": 0.0}
+        assert _odriv_op_has_data(op) is False
+
 
 # ============================================================================
 # Tests for detect_data_mismatches
@@ -1256,13 +1264,14 @@ class TestDetectDataMismatches:
         assert result["odriv_only"] == []
 
     def test_odriv_only_op_without_data_excluded(self):
-        """An ODRIV op with all N/A dots and no percentages should NOT show."""
+        """An ODRIV op with all N/A dots and zero percentages should NOT show.
+        _to_float converts empty cells to 0.0, so we test with 0.0 values."""
         empty_op = {
             "op_code": 10550100, "operation": "Motor engage",
             "driv_p1": "N/A", "driv_p2": "N/A", "driv_p3": "N/A",
             "resp_p1": "N/A", "resp_p2": "N/A", "resp_p3": "N/A",
-            "driv_tested": None, "driv_target": None,
-            "resp_tested": None, "resp_target": None,
+            "driv_tested": 0.0, "driv_target": 0.0,
+            "resp_tested": 0.0, "resp_target": 0.0,
             "section": "Motor",
         }
         sheet1 = self._make_sheet1([empty_op])

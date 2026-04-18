@@ -586,7 +586,9 @@ def _odriv_op_has_data(op):
     """Return True if an ODRIV operation carries at least one real data value.
 
     An operation is considered to have data when it has any non-N/A dot status
-    or any non-None numeric percentage value.
+    or any positive numeric percentage value.  ``_to_float`` converts empty
+    cells to ``0.0``, so zero is treated as "no data" — consistent with how
+    ``refresh_heatmap`` only stores scores ``> 0``.
     """
     for key in ("driv_p1", "driv_p2", "driv_p3", "resp_p1", "resp_p2", "resp_p3"):
         val = op.get(key)
@@ -594,7 +596,7 @@ def _odriv_op_has_data(op):
             return True
     for key in ("driv_tested", "driv_target", "resp_tested", "resp_target"):
         val = op.get(key)
-        if val is not None:
+        if val is not None and val != 0.0:
             return True
     return False
 
