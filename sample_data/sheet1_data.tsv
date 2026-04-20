@@ -1,0 +1,29 @@
+				Drivability						Responsiveness
+			Current Status		BYD_Dolphin Surf_BEV_NORMAL	BYD Atto 3 BEV_NORMAL	Drivability Lowest Events		Current Status		BYD_Dolphin Surf_BEV_NORMAL	BYD Atto 3 BEV_NORMAL	Responsiveness Lowest Events
+USE CASE				P1	P2	P3				P1	P2	P3
+Drive away							78.8	84.4					99	98.2
+	10102400	DA Rolling Start		G	G	G	100	100		G	G	G	100	93
+	10101300	Drive Away Creep		R	G	G	11.2	34.3		G	G	G	100	100
+	10101100	DASS		G	G	G	99.8	100		G	G	G	98	100
+Accelerations							100
+	10120200	Accel Cst Load		G	G	G	100	100		G	G	G
+	10120300	Accel Load Increase		G	G	G	100			G	G	G
+	10120900	Accel Load Decrease		G	G	G	100			G	G	G
+Decelerations							100	99.9
+	10070500	Decel Without Brake		G	G	G	100	99.6		G	G	G
+	10071000	Decel Cst Brake		G	G	G	100	100		G	G	G
+Constant Speeds							100	99.6
+	10080200	Cst Speed Without Load		G	G	G	100	100		G	G	G
+	10080100	Cst Speed Cst Load		G	G	G	100	99.5		G	G	G
+Gearbox behaviour							99.9	96					96.4	100
+	10097900	Lever change		G	G	G	99.6	100		G	G	G
+	10097800	Maneuvering		G	G	G	100	99.4		Y	G	G	92.9	100
+	10097800	Maneuvering with throttle		G	G	G	100	88.5		G	G	G	100	100
+Tip in							100	100					100	99.3
+	10030100	Tip in at deceleration		G	G	G	100	100		G	G	G	100	99
+	10030200	Tip in at constant speed		G	G	G	100	100		G	G	G	100	100
+Tip out							100	99.1					97.3	98.6
+	10030200	Tip Out After Acceleration		G	G	G	100	99.6		G	Y	G	94.6	97.2
+	10030200	Tip Out At Constant Speed		G	G	G	100	98.6		G	G	G	100	100
+Vehicle stationary							90.6
+		Vehicle Stop		Y	G	G	90.6			G	G	G
