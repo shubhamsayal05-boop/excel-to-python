@@ -467,6 +467,78 @@ def heatmap_view_page():
             lambda x: red_comments.get(x, "")
         )
 
+    # --- Manual Status / Comments editing ---
+    # Allow the user to manually override the Status or Comments for any
+    # sub-operation row directly from the HeatMap view.
+    if "manual_status_overrides" not in st.session_state:
+        st.session_state["manual_status_overrides"] = {}
+    if "manual_comment_overrides" not in st.session_state:
+        st.session_state["manual_comment_overrides"] = {}
+
+    with st.expander("✏️ Manually Edit Status / Comments", expanded=False):
+        editable_rows = []
+        for idx, row in display_df.iterrows():
+            if row["Op Code"] not in PARENT_OPERATION_CODES:
+                editable_rows.append((idx, row))
+
+        if editable_rows:
+            st.caption(
+                "Override the auto-generated Status or Comments for individual sub-operations. "
+                "Leave Status as '—' to keep the auto-calculated value. "
+                "Leave Comments blank to keep the auto-generated comment."
+            )
+            status_options = ["—", "GREEN", "YELLOW", "RED", "BLUE"]
+            for idx, row in editable_rows:
+                op_code = row["Op Code"]
+                op_name = row.get("Operation Mode", "")
+                col_label, col_status, col_comment = st.columns([2, 1, 3])
+                with col_label:
+                    st.markdown(f"**{op_name}** ({op_code})")
+                with col_status:
+                    current_override = st.session_state["manual_status_overrides"].get(op_code, "—")
+                    new_status = st.selectbox(
+                        "Status",
+                        status_options,
+                        index=status_options.index(current_override) if current_override in status_options else 0,
+                        key=f"manual_status_{op_code}",
+                        label_visibility="collapsed",
+                    )
+                    if new_status != "—":
+                        st.session_state["manual_status_overrides"][op_code] = new_status
+                    elif op_code in st.session_state["manual_status_overrides"]:
+                        del st.session_state["manual_status_overrides"][op_code]
+                with col_comment:
+                    current_comment = st.session_state["manual_comment_overrides"].get(op_code, "")
+                    new_comment = st.text_input(
+                        "Comment",
+                        value=current_comment,
+                        key=f"manual_comment_{op_code}",
+                        label_visibility="collapsed",
+                        placeholder="Enter comment…",
+                    )
+                    if new_comment.strip():
+                        st.session_state["manual_comment_overrides"][op_code] = new_comment.strip()
+                    elif op_code in st.session_state["manual_comment_overrides"]:
+                        del st.session_state["manual_comment_overrides"][op_code]
+        else:
+            st.info("No sub-operation rows available for editing.")
+
+    # Apply manual overrides to display_df
+    if st.session_state["manual_status_overrides"] and "Status" not in display_df.columns:
+        display_df["Status"] = ""
+    if st.session_state["manual_comment_overrides"] and "Comments" not in display_df.columns:
+        display_df["Comments"] = ""
+    for idx, row in display_df.iterrows():
+        op_code = row["Op Code"]
+        if op_code in st.session_state["manual_status_overrides"]:
+            display_df.at[idx, "Status"] = st.session_state["manual_status_overrides"][op_code]
+        if op_code in st.session_state["manual_comment_overrides"]:
+            display_df.at[idx, "Comments"] = st.session_state["manual_comment_overrides"][op_code]
+
+    # Recalculate parent statuses if any manual status overrides were applied
+    if st.session_state["manual_status_overrides"] and "Status" in display_df.columns:
+        _recalculate_parent_statuses(display_df)
+
     # Build the target vehicle label for the header
     target_label = target_vehicle or "Target Vehicle"
 
