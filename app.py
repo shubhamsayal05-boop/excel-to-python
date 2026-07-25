@@ -48,6 +48,7 @@ from heatmap_engine import (
     refresh_heatmap,
     filter_heatmap_rows,
 )
+from heatmap_excel_export import export_heatmap_to_excel
 from evaluation_engine import (
     parse_sheet1_data,
     parse_sheet1_from_excel,
@@ -617,9 +618,11 @@ def heatmap_view_page():
             "text/csv",
         )
     with col2:
-        excel_buffer = io.BytesIO()
-        with pd.ExcelWriter(excel_buffer, engine="openpyxl") as writer:
-            display_df.to_excel(writer, sheet_name="HeatMap", index=False)
+        excel_buffer = export_heatmap_to_excel(
+            display_df,
+            target_vehicle=target_vehicle,
+            tested_vehicle=tested_vehicle,
+        )
         st.download_button(
             "📥 Download HeatMap as Excel",
             excel_buffer.getvalue(),
