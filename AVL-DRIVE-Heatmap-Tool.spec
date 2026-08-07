@@ -1,20 +1,60 @@
 # -*- mode: python ; coding: utf-8 -*-
-from PyInstaller.utils.hooks import collect_all
-from PyInstaller.utils.hooks import copy_metadata
+import glob
+import os
+import sys
 
-datas = [('app.py', '.'), ('config.py', '.'), ('heatmap_engine.py', '.'), ('evaluation_engine.py', '.')]
+from PyInstaller.utils.hooks import collect_all, copy_metadata
+
+# Application source files bundled alongside app.py for Streamlit
+datas = [
+    ('app.py', '.'),
+    ('config.py', '.'),
+    ('heatmap_engine.py', '.'),
+    ('evaluation_engine.py', '.'),
+    ('heatmap_excel_export.py', '.'),
+]
+
 binaries = []
-hiddenimports = ['streamlit', 'streamlit.web.cli', 'streamlit.runtime.scriptrunner', 'openpyxl', 'pandas', 'matplotlib', 'plotly', 'seaborn']
-datas += copy_metadata('streamlit')
-datas += copy_metadata('pandas')
-datas += copy_metadata('openpyxl')
-datas += copy_metadata('matplotlib')
-datas += copy_metadata('plotly')
-datas += copy_metadata('seaborn')
-datas += copy_metadata('Pillow')
-tmp_ret = collect_all('streamlit')
-datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
+hiddenimports = [
+    'streamlit',
+    'streamlit.web.cli',
+    'streamlit.runtime.scriptrunner',
+    'streamlit.runtime.scriptrunner.magic_funcs',
+    'openpyxl',
+    'pandas',
+    'matplotlib',
+    'PIL',
+    'plotly',
+    'seaborn',
+]
 
+for pkg in ('streamlit', 'pandas', 'openpyxl', 'matplotlib', 'plotly', 'seaborn', 'Pillow'):
+    datas += copy_metadata(pkg)
+
+tmp_ret = collect_all('streamlit')
+datas += tmp_ret[0]
+binaries += tmp_ret[1]
+hiddenimports += tmp_ret[2]
+
+# Explicitly bundle Python runtime DLLs (fixes "Failed to load Python DLL" on Windows).
+# UPX compression is disabled below because it can also break DLL loading.
+if sys.platform == 'win32':
+    py_dll = f'python{sys.version_info.major}{sys.version_info.minor}.dll'
+    for candidate in (
+        os.path.join(sys.base_prefix, py_dll),
+        os.path.join(sys.base_prefix, 'DLLs', py_dll),
+    ):
+        if os.path.isfile(candidate):
+            binaries.append((candidate, '.'))
+
+    for pattern in ('vcruntime*.dll', 'python*.dll', 'msvcp*.dll'):
+        for dll_path in glob.glob(os.path.join(sys.base_prefix, pattern)):
+            binaries.append((dll_path, '.'))
+
+    dlls_dir = os.path.join(sys.base_prefix, 'DLLs')
+    if os.path.isdir(dlls_dir):
+        for dll_path in glob.glob(os.path.join(dlls_dir, '*.dll')):
+            binaries.append((dll_path, 'DLLs'))
 
 a = Analysis(
     ['launcher.py'],
@@ -40,7 +80,7 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
@@ -53,7 +93,7 @@ coll = COLLECT(
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='AVL-DRIVE-Heatmap-Tool',
 )
