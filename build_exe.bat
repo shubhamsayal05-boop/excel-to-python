@@ -56,7 +56,7 @@ if exist "dist\AVL-DRIVE-Heatmap-Tool\AVL-DRIVE-Heatmap-Tool.exe" (
         echo IMPORTANT: Copy the ENTIRE folder dist\AVL-DRIVE-Heatmap-Tool\
         echo            (not just the .exe). The _internal folder is required.
         echo.
-        echo In Help page, bundle stamp should be: gearshift-json-v2
+        echo In Help page, bundle stamp should be: gearshift-json-v3
     ) else (
         echo.
         echo WARNING: EXE was created but python DLL was not found in _internal.
