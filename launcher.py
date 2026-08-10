@@ -61,6 +61,8 @@ def main():
 
     os.chdir(base_path)
 
+    os.environ.setdefault("MPLBACKEND", "Agg")
+
     if getattr(sys, 'frozen', False):
         bundle_loader = _load_bundle_loader(base_path)
         bundle_loader.load_bundle_modules(base_path)

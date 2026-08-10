@@ -50,6 +50,11 @@ if exist "dist\AVL-DRIVE-Heatmap-Tool\AVL-DRIVE-Heatmap-Tool.exe" (
             echo.
             echo SUCCESS - operation_modes.json contains 10090100 Upshift.
         )
+        if exist "dist\AVL-DRIVE-Heatmap-Tool\_internal\_tcl_data" (
+            echo Tcl/Tk data bundled for matplotlib/PyInstaller.
+        ) else (
+            echo WARNING: _tcl_data folder missing — EXE may fail with Tcl error on startup.
+        )
         echo.
         echo Run: dist\AVL-DRIVE-Heatmap-Tool\AVL-DRIVE-Heatmap-Tool.exe
         echo.

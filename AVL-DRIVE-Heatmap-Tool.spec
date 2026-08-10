@@ -42,6 +42,33 @@ datas += tmp_ret[0]
 binaries += tmp_ret[1]
 hiddenimports += tmp_ret[2]
 
+
+def _bundle_tcl_tk_data():
+    """PyInstaller's tkinter runtime hook expects _tcl_data / _tk_data in _MEIPASS."""
+    if sys.platform != "win32":
+        return []
+    bundled = []
+    tcl_candidates = [
+        os.path.join(sys.base_prefix, "tcl", "tcl8.6"),
+        os.path.join(sys.base_prefix, "lib", "tcl8.6"),
+    ]
+    tk_candidates = [
+        os.path.join(sys.base_prefix, "tcl", "tk8.6"),
+        os.path.join(sys.base_prefix, "lib", "tk8.6"),
+    ]
+    for path in tcl_candidates:
+        if os.path.isdir(path):
+            bundled.append((path, "_tcl_data"))
+            break
+    for path in tk_candidates:
+        if os.path.isdir(path):
+            bundled.append((path, "_tk_data"))
+            break
+    return bundled
+
+
+datas += _bundle_tcl_tk_data()
+
 if sys.platform == "win32":
     py_dll = f"python{sys.version_info.major}{sys.version_info.minor}.dll"
     for candidate in (
@@ -69,7 +96,16 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=["config", "heatmap_engine", "evaluation_engine", "heatmap_excel_export", "app"],
+    excludes=[
+        "config",
+        "heatmap_engine",
+        "evaluation_engine",
+        "heatmap_excel_export",
+        "app",
+        "matplotlib.backends.backend_tkagg",
+        "matplotlib.backends._backend_tk",
+        "PIL.ImageTk",
+    ],
     noarchive=False,
     optimize=0,
 )
