@@ -5,14 +5,19 @@ import sys
 
 from PyInstaller.utils.hooks import collect_all, copy_metadata
 
-# Application source files bundled alongside app.py for Streamlit
-datas = [
-    ('app.py', '.'),
-    ('config.py', '.'),
-    ('heatmap_engine.py', '.'),
-    ('evaluation_engine.py', '.'),
-    ('heatmap_excel_export.py', '.'),
+SPEC_DIR = os.path.dirname(os.path.abspath(SPEC))
+
+# Local application modules — must be listed here so PyInstaller freezes the
+# current source into the bundle (not a stale copy from elsewhere on sys.path).
+APP_MODULES = [
+    'config',
+    'heatmap_engine',
+    'evaluation_engine',
+    'heatmap_excel_export',
 ]
+
+# Streamlit executes app.py by file path, so keep it as a data file in _MEIPASS.
+datas = [('app.py', '.')]
 
 binaries = []
 hiddenimports = [
@@ -26,7 +31,7 @@ hiddenimports = [
     'PIL',
     'plotly',
     'seaborn',
-]
+] + APP_MODULES
 
 for pkg in ('streamlit', 'pandas', 'openpyxl', 'matplotlib', 'plotly', 'seaborn', 'Pillow'):
     datas += copy_metadata(pkg)
@@ -58,7 +63,7 @@ if sys.platform == 'win32':
 
 a = Analysis(
     ['launcher.py'],
-    pathex=[],
+    pathex=[SPEC_DIR],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

@@ -34,6 +34,13 @@ def main():
     if base_path not in sys.path:
         sys.path.insert(0, base_path)
 
+    # Streamlit and sibling imports must resolve inside the bundle, not from
+    # another copy of the project on sys.path (common when building from a
+    # repo that also exists elsewhere on the machine).
+    os.chdir(base_path)
+    for mod_name in ('config', 'heatmap_engine', 'evaluation_engine', 'heatmap_excel_export', 'app'):
+        sys.modules.pop(mod_name, None)
+
     threading.Thread(target=open_browser, args=(PORT,), daemon=True).start()
 
     from streamlit.web import cli as stcli

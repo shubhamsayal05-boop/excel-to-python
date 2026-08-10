@@ -17,6 +17,7 @@ from PIL import Image as _PILImage
 import streamlit as st
 
 from config import (
+    BUILD_STAMP,
     STATUS_COLORS,
     COLOR_GREEN,
     COLOR_YELLOW,
@@ -879,6 +880,12 @@ def help_page():
                     "Row Type": "Mapping sheet only",
                 })
         st.dataframe(pd.DataFrame(ref_rows), use_container_width=True)
+        st.caption(
+            f"Bundle stamp: **{BUILD_STAMP}** · "
+            f"HeatMap rows: **{len(HEATMAP_OPERATION_CODES)}** · "
+            f"Gearshift general modes present: "
+            f"**{'yes' if 10090100 in HEATMAP_OPERATION_CODES and 10090200 in HEATMAP_OPERATION_CODES else 'no'}**"
+        )
 
     with st.expander("🔗 AVL-ODRIV Name Mapping", expanded=False):
         st.markdown(

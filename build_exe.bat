@@ -7,19 +7,30 @@ echo  AVL-DRIVE Heatmap Tool - Windows EXE build
 echo ============================================
 echo.
 
-echo [1/4] Cleaning previous build...
+echo [1/5] Cleaning previous build...
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
+for /d /r . %%d in (__pycache__) do @if exist "%%d" rmdir /s /q "%%d"
+del /s /q *.pyc 2>nul
 
-echo [2/4] Installing dependencies...
+echo [2/5] Verifying config before build...
+python -c "import config; assert 10090100 in config.HEATMAP_OPERATION_CODES; assert 10090200 in config.HEATMAP_OPERATION_CODES; print('OK:', config.BUILD_STAMP)"
+if errorlevel 1 (
+    echo.
+    echo CONFIG CHECK FAILED - Upshift/Downshift codes missing in config.py
+    echo Make sure you are on branch cursor/add-gearshift-sub-operations-1720
+    pause
+    exit /b 1
+)
+echo [3/5] Installing dependencies...
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install pyinstaller
 
-echo [3/4] Building executable (may take several minutes)...
+echo [4/5] Building executable (may take several minutes)...
 python -m PyInstaller AVL-DRIVE-Heatmap-Tool.spec --noconfirm --clean
 
-echo [4/4] Verifying output...
+echo [5/5] Verifying output...
 if exist "dist\AVL-DRIVE-Heatmap-Tool\AVL-DRIVE-Heatmap-Tool.exe" (
     if exist "dist\AVL-DRIVE-Heatmap-Tool\_internal\python3*.dll" (
         echo.
