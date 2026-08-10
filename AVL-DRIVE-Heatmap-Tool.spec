@@ -15,6 +15,7 @@ APP_SOURCE_FILES = [
     "heatmap_engine.py",
     "evaluation_engine.py",
     "heatmap_excel_export.py",
+    "operation_modes.json",
 ]
 datas = [(name, ".") for name in APP_SOURCE_FILES]
 

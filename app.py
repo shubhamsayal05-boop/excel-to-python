@@ -861,8 +861,51 @@ def evaluation_results_page():
 # ============================================================================
 # Page: Help & Reference
 # ============================================================================
+def _operation_mode_tables_for_help():
+    """Return operation mode tables (EXE reads operation_modes.json directly)."""
+    if getattr(sys, "frozen", False):
+        import json
+        import os
+
+        json_path = os.path.join(sys._MEIPASS, "operation_modes.json")
+        with open(json_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        heatmap_codes = list(data["HEATMAP_OPERATION_CODES"])
+        general_codes = set(data["GEAR_SHIFT_GENERAL_CODES"])
+        gs_start = heatmap_codes.index(10090000)
+        gs_end = heatmap_codes.index(10080000)
+        detailed_codes = {
+            code for code in heatmap_codes[gs_start + 1:gs_end]
+            if code not in general_codes
+        }
+        return {
+            "BUILD_STAMP": data.get("BUILD_STAMP", "?"),
+            "HEATMAP_OPERATION_CODES": heatmap_codes,
+            "OPERATION_MODE_MAPPING": {
+                int(code): name for code, name in data["OPERATION_MODE_MAPPING"].items()
+            },
+            "PARENT_OPERATION_CODES": set(data["PARENT_OPERATION_CODES"]),
+            "GEAR_SHIFT_GENERAL_CODES": general_codes,
+            "GEAR_SHIFT_DETAILED_CODES": detailed_codes,
+            "AVL_ODRIV_MAPPING": data["AVL_ODRIV_MAPPING"],
+            "source": json_path,
+        }
+
+    return {
+        "BUILD_STAMP": BUILD_STAMP,
+        "HEATMAP_OPERATION_CODES": HEATMAP_OPERATION_CODES,
+        "OPERATION_MODE_MAPPING": OPERATION_MODE_MAPPING,
+        "PARENT_OPERATION_CODES": PARENT_OPERATION_CODES,
+        "GEAR_SHIFT_GENERAL_CODES": GEAR_SHIFT_GENERAL_CODES,
+        "GEAR_SHIFT_DETAILED_CODES": GEAR_SHIFT_DETAILED_CODES,
+        "AVL_ODRIV_MAPPING": AVL_ODRIV_MAPPING,
+        "source": "config.py",
+    }
+
+
 def help_page():
     st.header("📖 Help & Reference")
+    tables = _operation_mode_tables_for_help()
 
     with st.expander("🔢 Operation Mode Codes", expanded=False):
         st.markdown(
@@ -871,13 +914,13 @@ def help_page():
         )
         ref_rows = []
         seen_codes = set()
-        for code in HEATMAP_OPERATION_CODES:
-            name = OPERATION_MODE_MAPPING.get(code, f"Unknown ({code})")
-            if code in PARENT_OPERATION_CODES:
+        for code in tables["HEATMAP_OPERATION_CODES"]:
+            name = tables["OPERATION_MODE_MAPPING"].get(code, f"Unknown ({code})")
+            if code in tables["PARENT_OPERATION_CODES"]:
                 row_type = "Parent"
-            elif code in GEAR_SHIFT_GENERAL_CODES:
+            elif code in tables["GEAR_SHIFT_GENERAL_CODES"]:
                 row_type = "Gear shift — general assessment"
-            elif code in GEAR_SHIFT_DETAILED_CODES:
+            elif code in tables["GEAR_SHIFT_DETAILED_CODES"]:
                 row_type = "Gear shift — detailed sub-mode"
             else:
                 row_type = "Sub-operation"
@@ -887,8 +930,7 @@ def help_page():
                 "Row Type": row_type,
             })
             seen_codes.add(code)
-        # Include any mapping-sheet codes not listed on the heatmap template.
-        for code, name in OPERATION_MODE_MAPPING.items():
+        for code, name in tables["OPERATION_MODE_MAPPING"].items():
             if code not in seen_codes:
                 ref_rows.append({
                     "Code": code,
@@ -896,16 +938,16 @@ def help_page():
                     "Row Type": "Mapping sheet only",
                 })
         st.dataframe(pd.DataFrame(ref_rows), use_container_width=True)
-        if getattr(sys, "frozen", False):
-            from bundle_loader import bundle_config_info
-            bundle_line = bundle_config_info()
-        else:
-            bundle_line = (
-                f"{BUILD_STAMP} · rows={len(HEATMAP_OPERATION_CODES)} · "
-                f"gearshift_general="
-                f"{'yes' if 10090100 in HEATMAP_OPERATION_CODES and 10090200 in HEATMAP_OPERATION_CODES else 'no'}"
-            )
-        st.caption(f"Bundle info: **{bundle_line}**")
+        has_gs = (
+            10090100 in tables["HEATMAP_OPERATION_CODES"]
+            and 10090200 in tables["HEATMAP_OPERATION_CODES"]
+        )
+        st.caption(
+            f"Bundle: **{tables['BUILD_STAMP']}** · "
+            f"rows={len(tables['HEATMAP_OPERATION_CODES'])} · "
+            f"gearshift_general=**{'yes' if has_gs else 'no'}** · "
+            f"source=`{tables['source']}`"
+        )
 
     with st.expander("🔗 AVL-ODRIV Name Mapping", expanded=False):
         st.markdown(
@@ -913,7 +955,10 @@ def help_page():
             "(sorted by Op Code)."
         )
         map_data = sorted(
-            [{"Name": name, "Op Code": code} for name, code in AVL_ODRIV_MAPPING.items()],
+            [
+                {"Name": name, "Op Code": code}
+                for name, code in tables["AVL_ODRIV_MAPPING"].items()
+            ],
             key=lambda row: (row["Op Code"], row["Name"].lower()),
         )
         st.dataframe(pd.DataFrame(map_data), use_container_width=True)

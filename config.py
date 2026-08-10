@@ -6,7 +6,7 @@ Contains all operation mode mappings, evaluation thresholds, and color definitio
 # ============================================================================
 # Build / bundle stamp (shown in Help & Reference to verify EXE vs dev build)
 # ============================================================================
-BUILD_STAMP = "gearshift-10090100-10090200-filebundle"
+BUILD_STAMP = "gearshift-json-v2"
 
 # ============================================================================
 # Operation Mode Mapping (Mapping Sheet)
@@ -295,3 +295,68 @@ SCORE_SCALE_MAX = 10.0        # green endpoint
 SCORE_COLOR_MIN = (0xFF, 0x00, 0x00)   # #FF0000
 SCORE_COLOR_MID = (0xFF, 0xFF, 0x00)   # #FFFF00
 SCORE_COLOR_MAX = (0x00, 0xB0, 0x50)   # #00B050
+
+# ============================================================================
+# Frozen EXE / bundled JSON (operation_modes.json is the runtime source of truth)
+# ============================================================================
+_OPERATION_MODES_JSON_PATH = None
+
+
+def _resolve_operation_modes_json_path():
+    import os
+    import sys
+
+    candidates = []
+    if getattr(sys, "frozen", False):
+        candidates.append(os.path.join(sys._MEIPASS, "operation_modes.json"))
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(here, "operation_modes.json"))
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _apply_operation_modes_json():
+    """Load operation mode tables from JSON when the bundle file is present."""
+    import json
+
+    global BUILD_STAMP, OPERATION_MODE_MAPPING, AVL_ODRIV_MAPPING
+    global HEATMAP_OPERATION_CODES, PARENT_OPERATION_CODES
+    global GEAR_SHIFT_GENERAL_CODES, GEAR_SHIFT_DETAILED_CODES
+    global _OPERATION_MODES_JSON_PATH
+
+    path = _resolve_operation_modes_json_path()
+    if not path:
+        if getattr(__import__("sys"), "frozen", False):
+            raise RuntimeError(
+                "operation_modes.json is missing from the EXE bundle. Rebuild with build_exe.bat."
+            )
+        return
+
+    # Development uses the Python tables in this file. Only the frozen EXE overlays JSON.
+    if not getattr(__import__("sys"), "frozen", False):
+        return
+
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+
+    BUILD_STAMP = data.get("BUILD_STAMP", BUILD_STAMP)
+    OPERATION_MODE_MAPPING = {
+        int(code): name for code, name in data["OPERATION_MODE_MAPPING"].items()
+    }
+    AVL_ODRIV_MAPPING = data["AVL_ODRIV_MAPPING"]
+    HEATMAP_OPERATION_CODES = list(data["HEATMAP_OPERATION_CODES"])
+    PARENT_OPERATION_CODES = set(data["PARENT_OPERATION_CODES"])
+    GEAR_SHIFT_GENERAL_CODES = set(data["GEAR_SHIFT_GENERAL_CODES"])
+
+    _gs_start = HEATMAP_OPERATION_CODES.index(10090000)
+    _gs_end = HEATMAP_OPERATION_CODES.index(10080000)
+    GEAR_SHIFT_DETAILED_CODES = {
+        code for code in HEATMAP_OPERATION_CODES[_gs_start + 1:_gs_end]
+        if code not in GEAR_SHIFT_GENERAL_CODES
+    }
+    _OPERATION_MODES_JSON_PATH = path
+
+
+_apply_operation_modes_json()
