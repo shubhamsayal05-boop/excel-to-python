@@ -6,7 +6,7 @@ Contains all operation mode mappings, evaluation thresholds, and color definitio
 # ============================================================================
 # Build / bundle stamp (shown in Help & Reference to verify EXE vs dev build)
 # ============================================================================
-BUILD_STAMP = "gearshift-json-v2"
+BUILD_STAMP = "gearshift-json-v3"
 
 # ============================================================================
 # Operation Mode Mapping (Mapping Sheet)

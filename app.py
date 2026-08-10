@@ -7,6 +7,7 @@ Usage:
 """
 
 import sys
+import os
 
 # EXE bundle: load config and engines from .py files in _MEIPASS before any
 # local imports (Streamlit reruns this file on each interaction).
@@ -99,6 +100,12 @@ def main():
 
     # Sidebar navigation
     st.sidebar.title("Navigation")
+    if getattr(sys, "frozen", False):
+        exe_port = os.environ.get("AVL_HEATMAP_EXE_PORT", "8501")
+        st.sidebar.caption(
+            f"**Windows EXE** · `{BUILD_STAMP}` · "
+            f"http://localhost:{exe_port}"
+        )
     page = st.sidebar.radio(
         "Select Page",
         [

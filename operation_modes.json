@@ -103,7 +103,7 @@
     "Without brake": 10070500,
     "Without load": 10080200
   },
-  "BUILD_STAMP": "gearshift-json-v2",
+  "BUILD_STAMP": "gearshift-json-v3",
   "GEAR_SHIFT_GENERAL_CODES": [
     10090100,
     10090200
