@@ -6,6 +6,22 @@ Usage:
     streamlit run app.py
 """
 
+import sys
+
+# EXE bundle: load config and engines from .py files in _MEIPASS before any
+# local imports (Streamlit reruns this file on each interaction).
+if getattr(sys, "frozen", False):
+    import importlib.util
+    import os
+
+    _bundle_base = sys._MEIPASS
+    _loader_path = os.path.join(_bundle_base, "bundle_loader.py")
+    _spec = importlib.util.spec_from_file_location("bundle_loader", _loader_path)
+    _bundle_loader = importlib.util.module_from_spec(_spec)
+    sys.modules["bundle_loader"] = _bundle_loader
+    _spec.loader.exec_module(_bundle_loader)
+    _bundle_loader.load_bundle_modules(_bundle_base)
+
 import html as _html
 import io
 
@@ -880,12 +896,16 @@ def help_page():
                     "Row Type": "Mapping sheet only",
                 })
         st.dataframe(pd.DataFrame(ref_rows), use_container_width=True)
-        st.caption(
-            f"Bundle stamp: **{BUILD_STAMP}** · "
-            f"HeatMap rows: **{len(HEATMAP_OPERATION_CODES)}** · "
-            f"Gearshift general modes present: "
-            f"**{'yes' if 10090100 in HEATMAP_OPERATION_CODES and 10090200 in HEATMAP_OPERATION_CODES else 'no'}**"
-        )
+        if getattr(sys, "frozen", False):
+            from bundle_loader import bundle_config_info
+            bundle_line = bundle_config_info()
+        else:
+            bundle_line = (
+                f"{BUILD_STAMP} · rows={len(HEATMAP_OPERATION_CODES)} · "
+                f"gearshift_general="
+                f"{'yes' if 10090100 in HEATMAP_OPERATION_CODES and 10090200 in HEATMAP_OPERATION_CODES else 'no'}"
+            )
+        st.caption(f"Bundle info: **{bundle_line}**")
 
     with st.expander("🔗 AVL-ODRIV Name Mapping", expanded=False):
         st.markdown(

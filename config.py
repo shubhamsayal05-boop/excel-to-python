@@ -6,7 +6,7 @@ Contains all operation mode mappings, evaluation thresholds, and color definitio
 # ============================================================================
 # Build / bundle stamp (shown in Help & Reference to verify EXE vs dev build)
 # ============================================================================
-BUILD_STAMP = "gearshift-10090100-10090200"
+BUILD_STAMP = "gearshift-10090100-10090200-filebundle"
 
 # ============================================================================
 # Operation Mode Mapping (Mapping Sheet)
