@@ -33,6 +33,8 @@ from config import (
     OPERATION_MODE_MAPPING,
     AVL_ODRIV_MAPPING,
     HEATMAP_OPERATION_CODES,
+    GEAR_SHIFT_GENERAL_CODES,
+    GEAR_SHIFT_DETAILED_CODES,
     PARENT_OPERATION_CODES,
     SCORE_SCALE_MIN,
     SCORE_SCALE_MID,
@@ -854,10 +856,18 @@ def help_page():
         seen_codes = set()
         for code in HEATMAP_OPERATION_CODES:
             name = OPERATION_MODE_MAPPING.get(code, f"Unknown ({code})")
+            if code in PARENT_OPERATION_CODES:
+                row_type = "Parent"
+            elif code in GEAR_SHIFT_GENERAL_CODES:
+                row_type = "Gear shift — general assessment"
+            elif code in GEAR_SHIFT_DETAILED_CODES:
+                row_type = "Gear shift — detailed sub-mode"
+            else:
+                row_type = "Sub-operation"
             ref_rows.append({
                 "Code": code,
                 "Operation Mode": name,
-                "Row Type": "Parent" if code in PARENT_OPERATION_CODES else "Sub-operation",
+                "Row Type": row_type,
             })
             seen_codes.add(code)
         # Include any mapping-sheet codes not listed on the heatmap template.
@@ -1189,6 +1199,7 @@ def _build_heatmap_html(df, vehicle_names, target_label, target_vehicle=None, te
     .hm-parent td {{ font-weight: bold; }}
     .hm-parent .hm-opname {{ background-color: {COLOR_HEATMAP_HEADER}; }}
     .hm-parent .hm-code {{ background-color: {COLOR_HEATMAP_HEADER}; }}
+    .hm-gearshift-general td {{ border-top: 2px solid {COLOR_HEATMAP_BORDER}; }}
     /* Target label row – white background, black text (Excel theme=0, tint=0) */
     .hm-target {{ background-color: {COLOR_WHITE}; color: {COLOR_BLACK}; text-align: center; font-weight: bold; font-size: 11px; }}
     </style>
@@ -1245,8 +1256,14 @@ def _build_heatmap_html(df, vehicle_names, target_label, target_vehicle=None, te
         op_code = row.get("Op Code", "")
         op_name = row.get("Operation Mode", "")
         is_parent = op_code in PARENT_OPERATION_CODES
+        is_gearshift_general = op_code in GEAR_SHIFT_GENERAL_CODES
 
-        tr_class = ' class="hm-parent"' if is_parent else ''
+        if is_parent:
+            tr_class = ' class="hm-parent"'
+        elif is_gearshift_general:
+            tr_class = ' class="hm-gearshift-general"'
+        else:
+            tr_class = ''
         r = f'<tr{tr_class}>'
         r += f'<td class="hm-code">{op_code}</td>'
         r += f'<td class="hm-opname">{_html.escape(str(op_name))}</td>'

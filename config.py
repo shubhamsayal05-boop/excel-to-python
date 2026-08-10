@@ -28,8 +28,6 @@ OPERATION_MODE_MAPPING = {
     10070500: "Without brake",
     10071000: "Constant brake",
     10090000: "Gear shift",
-    10090100: "Upshift",
-    10090200: "Downshift",
     10092300: "Power-on upshift",
     10092500: "Tip out upshift",
     10098200: "Tip in upshift",
@@ -42,6 +40,8 @@ OPERATION_MODE_MAPPING = {
     10093400: "Coast / brake-on downshift",
     10097800: "Maneuvering",
     10097900: "Selector lever change",
+    10090100: "Upshift",
+    10090200: "Downshift",
     10080000: "Constant speed",
     10080200: "Without load",
     10080100: "Constant load",
@@ -121,12 +121,6 @@ AVL_ODRIV_MAPPING = {
     "Decel Cst Brake": 10071000,
     "Decel Cst Brake - Cold": 10071000,
     "Gear shift": 10090000,
-    "Upshift": 10090100,
-    "Gearshift Upshift": 10090100,
-    "Gear shift upshift": 10090100,
-    "Downshift": 10090200,
-    "Gearshift Downshift": 10090200,
-    "Gear shift downshift": 10090200,
     "Power-on upshift": 10092300,
     "Power-on upshift Cold": 10092300,
     "Tip out upshift": 10092500,
@@ -141,6 +135,12 @@ AVL_ODRIV_MAPPING = {
     "Coast-brake-on downshift Cold": 10093100,
     "Load reversal downshift": 10098300,
     "Coast / brake-on downshift": 10093400,
+    "Upshift": 10090100,
+    "GS Upshift": 10090100,
+    "Gearshift Upshift": 10090100,
+    "Downshift": 10090200,
+    "GS Downshift": 10090200,
+    "Gearshift Downshift": 10090200,
     "Maneuvering": 10097800,
     "Maneuvering - Cold": 10097800,
     "Maneuvering with throttle": 10097800,
@@ -189,9 +189,9 @@ HEATMAP_OPERATION_CODES = [
     10030000, 10030100, 10030200,
     10040000, 10040300,
     10070000, 10070500, 10070100, 10071000,
-    10090000, 10090100, 10090200, 10092300, 10092500, 10098200, 10098400,
+    10090000, 10092300, 10092500, 10098200, 10098400,
     10092100, 10093200, 10098100, 10093100, 10098300,
-    10093400, 10097800, 10097900,
+    10093400, 10097800, 10097900, 10090100, 10090200,
     10080000, 10080200, 10080100,
     10010000, 10011000, 10010200, 10010700, 10015200,
     10020000, 10020100, 10020200, 10020300,
@@ -217,6 +217,18 @@ PARENT_OPERATION_CODES = {
     10460000,  # TCC control
     10430000,  # Cylinder deactivation
     10450000,  # Vehicle stationary
+}
+
+# General gearshift assessments — separate from detailed upshift/downshift sub-modes
+# (Power-on upshift, Tip out upshift, etc.). Listed at the end of the Gear shift
+# block on the HeatMap sheet.
+GEAR_SHIFT_GENERAL_CODES = {10090100, 10090200}
+
+_GEAR_SHIFT_SECTION_START = HEATMAP_OPERATION_CODES.index(10090000)
+_GEAR_SHIFT_SECTION_END = HEATMAP_OPERATION_CODES.index(10080000)
+GEAR_SHIFT_DETAILED_CODES = {
+    code for code in HEATMAP_OPERATION_CODES[_GEAR_SHIFT_SECTION_START + 1:_GEAR_SHIFT_SECTION_END]
+    if code not in GEAR_SHIFT_GENERAL_CODES
 }
 
 # ============================================================================
