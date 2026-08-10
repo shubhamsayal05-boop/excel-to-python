@@ -88,7 +88,7 @@ from evaluation_engine import (
 # Page Configuration
 # ============================================================================
 st.set_page_config(
-    page_title="AVL-DRIVE Heatmap Tool",
+    page_title="AVL-DRIVE Heatmap Tool V5.1",
     page_icon="🚗",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -96,16 +96,10 @@ st.set_page_config(
 
 
 def main():
-    st.title("🚗 AVL-DRIVE Heatmap Tool")
+    st.title("🚗 AVL-DRIVE Heatmap Tool V5.1")
 
     # Sidebar navigation
     st.sidebar.title("Navigation")
-    if getattr(sys, "frozen", False):
-        exe_port = os.environ.get("AVL_HEATMAP_EXE_PORT", "8501")
-        st.sidebar.caption(
-            f"**Windows EXE** · `{BUILD_STAMP}` · "
-            f"http://localhost:{exe_port}"
-        )
     page = st.sidebar.radio(
         "Select Page",
         [
