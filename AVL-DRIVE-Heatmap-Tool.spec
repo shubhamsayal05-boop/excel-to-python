@@ -119,26 +119,20 @@ def _collect_windows_runtime_dlls():
 binaries += _collect_windows_runtime_dlls()
 
 
-def _filter_missing_toc(toc):
-    """Drop TOC entries whose source path does not exist (broken optional deps)."""
+def _filter_toc(toc):
+    """Drop broken optional deps (lxml isoschematron) and missing source paths."""
     kept = []
     for entry in toc:
+        dest = entry[0]
         src = entry[1]
+        combined = f"{dest}|{src}".replace("\\", "/").lower()
+        # lxml isoschematron XSL files break COLLECT on many Windows installs.
+        if "isoschematron" in combined or "/lxml/" in combined:
+            continue
         if os.path.isfile(src) or os.path.isdir(src):
             kept.append(entry)
     return kept
 
-
-# lxml is pulled in transitively (e.g. by openpyxl). Collect it explicitly so
-# PyInstaller does not reference missing isoschematron XSL paths on some installs.
-try:
-    lxml_ret = collect_all("lxml")
-    datas += lxml_ret[0]
-    binaries += lxml_ret[1]
-    hiddenimports += lxml_ret[2]
-    datas += copy_metadata("lxml")
-except Exception:
-    pass
 
 a = Analysis(
     ["launcher.py"],
@@ -147,7 +141,11 @@ a = Analysis(
     datas=datas,
     hiddenimports=hiddenimports,
     hookspath=[],
-    hooksconfig={},
+    hooksconfig={
+        "matplotlib": {
+            "backends": "Agg",
+        },
+    },
     runtime_hooks=[],
     excludes=[
         "config",
@@ -155,16 +153,17 @@ a = Analysis(
         "evaluation_engine",
         "heatmap_excel_export",
         "app",
+        "lxml",
+        "lxml.isoschematron",
         "matplotlib.backends.backend_tkagg",
         "matplotlib.backends._backend_tk",
         "PIL.ImageTk",
-        "lxml.isoschematron",
     ],
     noarchive=False,
     optimize=0,
 )
-a.datas = _filter_missing_toc(a.datas)
-a.binaries = _filter_missing_toc(a.binaries)
+a.datas = _filter_toc(a.datas)
+a.binaries = _filter_toc(a.binaries)
 pyz = PYZ(a.pure)
 
 exe = EXE(
@@ -192,4 +191,6 @@ coll = COLLECT(
     upx=False,
     upx_exclude=[],
     name="AVL-DRIVE-Heatmap-Tool",
+    distpath=os.path.join(SPEC_DIR, "dist"),
+    workpath=os.path.join(SPEC_DIR, "build"),
 )
