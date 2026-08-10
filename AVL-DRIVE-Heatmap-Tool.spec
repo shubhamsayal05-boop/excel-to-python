@@ -118,6 +118,28 @@ def _collect_windows_runtime_dlls():
 
 binaries += _collect_windows_runtime_dlls()
 
+
+def _filter_missing_toc(toc):
+    """Drop TOC entries whose source path does not exist (broken optional deps)."""
+    kept = []
+    for entry in toc:
+        src = entry[1]
+        if os.path.isfile(src) or os.path.isdir(src):
+            kept.append(entry)
+    return kept
+
+
+# lxml is pulled in transitively (e.g. by openpyxl). Collect it explicitly so
+# PyInstaller does not reference missing isoschematron XSL paths on some installs.
+try:
+    lxml_ret = collect_all("lxml")
+    datas += lxml_ret[0]
+    binaries += lxml_ret[1]
+    hiddenimports += lxml_ret[2]
+    datas += copy_metadata("lxml")
+except Exception:
+    pass
+
 a = Analysis(
     ["launcher.py"],
     pathex=[SPEC_DIR],
@@ -136,10 +158,13 @@ a = Analysis(
         "matplotlib.backends.backend_tkagg",
         "matplotlib.backends._backend_tk",
         "PIL.ImageTk",
+        "lxml.isoschematron",
     ],
     noarchive=False,
     optimize=0,
 )
+a.datas = _filter_missing_toc(a.datas)
+a.binaries = _filter_missing_toc(a.binaries)
 pyz = PYZ(a.pure)
 
 exe = EXE(

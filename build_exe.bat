@@ -39,6 +39,7 @@ echo [4/6] Installing dependencies...
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install pyinstaller
+python -m pip install --upgrade --force-reinstall lxml
 
 echo [5/6] Building executable (may take several minutes)...
 python -m PyInstaller AVL-DRIVE-Heatmap-Tool.spec --noconfirm --clean
