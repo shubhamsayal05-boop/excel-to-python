@@ -32,6 +32,7 @@ from config import (
     DOT_FONT_COLORS,
     OPERATION_MODE_MAPPING,
     AVL_ODRIV_MAPPING,
+    HEATMAP_OPERATION_CODES,
     PARENT_OPERATION_CODES,
     SCORE_SCALE_MIN,
     SCORE_SCALE_MID,
@@ -845,13 +846,39 @@ def help_page():
     st.header("📖 Help & Reference")
 
     with st.expander("🔢 Operation Mode Codes", expanded=False):
-        st.markdown("Reference table of all operation mode codes and their names:")
-        ref_data = [{"Code": k, "Operation Mode": v} for k, v in OPERATION_MODE_MAPPING.items()]
-        st.dataframe(pd.DataFrame(ref_data), use_container_width=True)
+        st.markdown(
+            "Reference table of operation mode codes and names, in the same order "
+            "as the **HeatMap Sheet** rows."
+        )
+        ref_rows = []
+        seen_codes = set()
+        for code in HEATMAP_OPERATION_CODES:
+            name = OPERATION_MODE_MAPPING.get(code, f"Unknown ({code})")
+            ref_rows.append({
+                "Code": code,
+                "Operation Mode": name,
+                "Row Type": "Parent" if code in PARENT_OPERATION_CODES else "Sub-operation",
+            })
+            seen_codes.add(code)
+        # Include any mapping-sheet codes not listed on the heatmap template.
+        for code, name in OPERATION_MODE_MAPPING.items():
+            if code not in seen_codes:
+                ref_rows.append({
+                    "Code": code,
+                    "Operation Mode": name,
+                    "Row Type": "Mapping sheet only",
+                })
+        st.dataframe(pd.DataFrame(ref_rows), use_container_width=True)
 
     with st.expander("🔗 AVL-ODRIV Name Mapping", expanded=False):
-        st.markdown("Maps detailed operation names to standard operation codes:")
-        map_data = [{"Name": k, "Op Code": v} for k, v in AVL_ODRIV_MAPPING.items()]
+        st.markdown(
+            "Maps detailed ODRIV operation names to standard operation codes "
+            "(sorted by Op Code)."
+        )
+        map_data = sorted(
+            [{"Name": name, "Op Code": code} for name, code in AVL_ODRIV_MAPPING.items()],
+            key=lambda row: (row["Op Code"], row["Name"].lower()),
+        )
         st.dataframe(pd.DataFrame(map_data), use_container_width=True)
 
     with st.expander("📊 Evaluation Rules", expanded=True):
