@@ -69,23 +69,54 @@ def _bundle_tcl_tk_data():
 
 datas += _bundle_tcl_tk_data()
 
-if sys.platform == "win32":
-    py_dll = f"python{sys.version_info.major}{sys.version_info.minor}.dll"
-    for candidate in (
-        os.path.join(sys.base_prefix, py_dll),
-        os.path.join(sys.base_prefix, "DLLs", py_dll),
-    ):
-        if os.path.isfile(candidate):
-            binaries.append((candidate, "."))
 
-    for pattern in ("vcruntime*.dll", "python*.dll", "msvcp*.dll"):
-        for dll_path in glob.glob(os.path.join(sys.base_prefix, pattern)):
-            binaries.append((dll_path, "."))
+def _collect_windows_runtime_dlls():
+    """Bundle python310.dll and MSVC runtime DLLs into _internal (same folder)."""
+    if sys.platform != "win32":
+        return []
+
+    collected = []
+    seen = set()
+
+    def add(src, dest="."):
+        if not src or not os.path.isfile(src):
+            return
+        key = (os.path.normcase(src), dest)
+        if key in seen:
+            return
+        seen.add(key)
+        collected.append((src, dest))
+
+    ver = f"{sys.version_info.major}{sys.version_info.minor}"
+    py_dll = f"python{ver}.dll"
+    search_roots = [
+        sys.base_prefix,
+        os.path.dirname(sys.executable),
+        os.path.dirname(os.path.dirname(os.path.abspath(sys.executable))),
+    ]
+
+    for root in search_roots:
+        if not root:
+            continue
+        add(os.path.join(root, py_dll))
+        add(os.path.join(root, "python3.dll"))
+        for pattern in ("vcruntime*.dll", "msvcp*.dll", "python*.dll"):
+            for dll_path in glob.glob(os.path.join(root, pattern)):
+                add(dll_path)
 
     dlls_dir = os.path.join(sys.base_prefix, "DLLs")
     if os.path.isdir(dlls_dir):
         for dll_path in glob.glob(os.path.join(dlls_dir, "*.dll")):
-            binaries.append((dll_path, "DLLs"))
+            name = os.path.basename(dll_path).lower()
+            if name.startswith(("vcruntime", "msvcp", "python")):
+                add(dll_path, ".")
+            else:
+                add(dll_path, "DLLs")
+
+    return collected
+
+
+binaries += _collect_windows_runtime_dlls()
 
 a = Analysis(
     ["launcher.py"],

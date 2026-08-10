@@ -3,8 +3,13 @@ setlocal
 cd /d "%~dp0"
 
 echo ============================================
-echo  AVL-DRIVE Heatmap Tool - Windows EXE build
+echo  AVL-DRIVE Heatmap Tool V5.1 - Windows EXE
 echo ============================================
+echo.
+echo Build folder: %CD%
+echo Python: 
+python --version
+where python
 echo.
 
 echo [1/6] Cleaning previous build...
@@ -25,11 +30,11 @@ echo [3/6] Verifying config and JSON...
 python -c "import json; d=json.load(open('operation_modes.json')); assert 10090100 in d['HEATMAP_OPERATION_CODES']; assert 10090200 in d['HEATMAP_OPERATION_CODES']; print('OK:', d['BUILD_STAMP'])"
 if errorlevel 1 (
     echo.
-    echo CONFIG CHECK FAILED - Upshift/Downshift codes missing in config.py
-    echo Make sure you are on branch cursor/add-gearshift-sub-operations-1720
+    echo CONFIG CHECK FAILED - Upshift/Downshift codes missing
     pause
     exit /b 1
 )
+
 echo [4/6] Installing dependencies...
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
@@ -37,41 +42,69 @@ python -m pip install pyinstaller
 
 echo [5/6] Building executable (may take several minutes)...
 python -m PyInstaller AVL-DRIVE-Heatmap-Tool.spec --noconfirm --clean
-
-echo [6/6] Verifying output...
-if exist "dist\AVL-DRIVE-Heatmap-Tool\AVL-DRIVE-Heatmap-Tool.exe" (
-    if exist "dist\AVL-DRIVE-Heatmap-Tool\_internal\python3*.dll" (
-        findstr /C:"10090100" "dist\AVL-DRIVE-Heatmap-Tool\_internal\operation_modes.json" >nul
-        if errorlevel 1 (
-            echo.
-            echo WARNING: operation_modes.json in bundle does NOT contain 10090100.
-            echo Delete build and dist folders and rebuild.
-        ) else (
-            echo.
-            echo SUCCESS - operation_modes.json contains 10090100 Upshift.
-        )
-        if exist "dist\AVL-DRIVE-Heatmap-Tool\_internal\_tcl_data" (
-            echo Tcl/Tk data bundled for matplotlib/PyInstaller.
-        ) else (
-            echo WARNING: _tcl_data folder missing — EXE may fail with Tcl error on startup.
-        )
-        echo.
-        echo Run: dist\AVL-DRIVE-Heatmap-Tool\AVL-DRIVE-Heatmap-Tool.exe
-        echo.
-        echo IMPORTANT: Copy the ENTIRE folder dist\AVL-DRIVE-Heatmap-Tool\
-        echo            (not just the .exe). The _internal folder is required.
-        echo.
-        echo In Help page, bundle stamp should be: gearshift-json-v3
-    ) else (
-        echo.
-        echo WARNING: EXE was created but python DLL was not found in _internal.
-        echo Check the build log above for errors.
-    )
-) else (
-    echo.
-    echo BUILD FAILED - check errors above.
+if errorlevel 1 (
+    echo BUILD FAILED
+    pause
+    exit /b 1
 )
 
+echo [6/6] Verifying output...
+set "OUT=dist\AVL-DRIVE-Heatmap-Tool"
+set "INT=%OUT%\_internal"
+set "FAIL=0"
+for /f %%i in ('python -c "import sys; print(f'python{sys.version_info.major}{sys.version_info.minor}.dll')"') do set "PYDLL=%%i"
+
+if not exist "%OUT%\AVL-DRIVE-Heatmap-Tool.exe" (
+    echo ERROR: EXE not found.
+    set "FAIL=1"
+)
+
+if not exist "%INT%\%PYDLL%" (
+    echo ERROR: %INT%\%PYDLL% is MISSING.
+    echo        The EXE will show "Failed to load Python DLL".
+    set "FAIL=1"
+) else (
+    echo OK: %PYDLL% found
+)
+
+if not exist "%INT%\vcruntime140.dll" (
+    echo ERROR: %INT%\vcruntime140.dll is MISSING.
+    echo        Install VC++ Redistributable OR rebuild with python.org Python.
+    set "FAIL=1"
+) else (
+    echo OK: vcruntime140.dll found
+)
+
+findstr /C:"10090100" "%INT%\operation_modes.json" >nul
+if errorlevel 1 (
+    echo ERROR: operation_modes.json missing 10090100
+    set "FAIL=1"
+) else (
+    echo OK: operation_modes.json contains Upshift 10090100
+)
+
+if not exist "%INT%\_tcl_data" (
+    echo WARNING: _tcl_data missing - Tcl error possible at startup
+) else (
+    echo OK: _tcl_data bundled
+)
+
+echo.
+if "%FAIL%"=="1" (
+    echo BUILD VERIFICATION FAILED - do not distribute this EXE.
+    pause
+    exit /b 1
+)
+
+echo SUCCESS.
+echo.
+echo Run: %OUT%\AVL-DRIVE-Heatmap-Tool.exe
+echo.
+echo IMPORTANT:
+echo  - Copy the ENTIRE folder "%OUT%" (exe + _internal folder together)
+echo  - Do not run from a double-nested zip path; use e.g. C:\Tools\AVL-DRIVE-Heatmap-Tool\
+echo  - If startup still fails, install VC++ Redistributable x64:
+echo    https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
 echo.
 pause
 endlocal
