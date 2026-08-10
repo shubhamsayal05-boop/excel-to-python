@@ -18,7 +18,7 @@ Build scripts:
   build_exe.bat                    ← double-click this to build
   AVL-DRIVE-Heatmap-Tool.spec      ← PyInstaller configuration
   requirements.txt                 ← app dependencies
-  requirements-build.txt         ← build dependencies (pyinstaller, lxml)
+  requirements-build.txt         ← build dependencies (pyinstaller)
   export_operation_modes.py        ← generates operation_modes.json before build
 
 EXE entry + bundle loader:
