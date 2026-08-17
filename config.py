@@ -15,22 +15,16 @@ BUILD_STAMP = "v6-json-v1"
 CHANGE_LOG = [
     {
         "version": "6.0",
-        "summary": "Version 6 — gear shift updates and change log",
+        "summary": "Gear shift update",
         "changes": [
-            "Application version updated to **V6.0**.",
-            "Gear shift sub-operation **10097800** renamed to **Maneuvering at Creep Speed** (under Gear shift on the HeatMap).",
-            "New **Change log** page listing changes for each release.",
-            "Continues to include Upshift (10090100) and Downshift (10090200) general gear shift assessments.",
+            "Added **Maneuvering at Creep Speed (10097800)** under Gear shift on the HeatMap.",
         ],
     },
     {
         "version": "5.2",
-        "summary": "Gear shift general assessments and Windows EXE",
+        "summary": "Gear shift general assessments",
         "changes": [
             "Added general gear shift assessments: **Upshift (10090100)** and **Downshift (10090200)** at the end of the Gear shift block.",
-            "Windows **.exe** build (`build_exe.bat`) with bundled `operation_modes.json` for reliable operation-code updates in the EXE.",
-            "EXE loads operation modes from JSON instead of frozen bytecode so Help & Reference matches `streamlit run`.",
-            "PyInstaller spec bundles Python/MSVC runtime DLLs, Tcl/Tk data, and matplotlib Agg backend.",
         ],
     },
     {
