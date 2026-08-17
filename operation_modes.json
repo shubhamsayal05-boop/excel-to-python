@@ -1,4 +1,5 @@
 {
+  "APP_VERSION": "6.0",
   "AVL_ODRIV_MAPPING": {
     "(PT) KD - tip in downshift": 10093100,
     "(TO) KD - tip in downshift": 10093100,
@@ -72,6 +73,7 @@
     "Load reversal upshift": 10098400,
     "Maneuvering": 10097800,
     "Maneuvering - Cold": 10097800,
+    "Maneuvering at Creep Speed": 10097800,
     "Maneuvering with throttle": 10097800,
     "Manual start": 10020100,
     "Manual stop": 10140600,
@@ -103,7 +105,47 @@
     "Without brake": 10070500,
     "Without load": 10080200
   },
-  "BUILD_STAMP": "gearshift-json-v3",
+  "BUILD_STAMP": "v6-json-v1",
+  "CHANGE_LOG": [
+    {
+      "changes": [
+        "Application version updated to **V6.0**.",
+        "Gear shift sub-operation **10097800** renamed to **Maneuvering at Creep Speed** (under Gear shift on the HeatMap).",
+        "New **Change log** page listing changes for each release.",
+        "Continues to include Upshift (10090100) and Downshift (10090200) general gear shift assessments."
+      ],
+      "summary": "Version 6 \u2014 gear shift updates and change log",
+      "version": "6.0"
+    },
+    {
+      "changes": [
+        "Added general gear shift assessments: **Upshift (10090100)** and **Downshift (10090200)** at the end of the Gear shift block.",
+        "Windows **.exe** build (`build_exe.bat`) with bundled `operation_modes.json` for reliable operation-code updates in the EXE.",
+        "EXE loads operation modes from JSON instead of frozen bytecode so Help & Reference matches `streamlit run`.",
+        "PyInstaller spec bundles Python/MSVC runtime DLLs, Tcl/Tk data, and matplotlib Agg backend."
+      ],
+      "summary": "Gear shift general assessments and Windows EXE",
+      "version": "5.2"
+    },
+    {
+      "changes": [
+        "Removed **Tip out at Deceleration (10040400)** from the HeatMap operation list.",
+        "**Tip Out After Acceleration** remapped to code **10040300** (At constant speed / acceleration).",
+        "Styled **HeatMap Excel export** matching the on-screen heatmap colors and layout."
+      ],
+      "summary": "Tip out mapping and HeatMap operation cleanup",
+      "version": "5.1"
+    },
+    {
+      "changes": [
+        "Python **Streamlit** port of the Excel AVL-DRIVE Heatmap Tool v5.1.",
+        "AVL Data Input, Odriv Data Input, Run Evaluation, and HeatMap views.",
+        "ODRIV Excel upload with dot-color parsing, auto-comments for RED P1, and group status evaluation."
+      ],
+      "summary": "Initial Python port",
+      "version": "5.0"
+    }
+  ],
   "GEAR_SHIFT_GENERAL_CODES": [
     10090100,
     10090200
@@ -201,7 +243,7 @@
     "10093100": "Kick down / tip in downshift",
     "10093200": "Power-on downshift",
     "10093400": "Coast / brake-on downshift",
-    "10097800": "Maneuvering",
+    "10097800": "Maneuvering at Creep Speed",
     "10097900": "Selector lever change",
     "10098100": "Tip out downshift",
     "10098200": "Tip in upshift",

@@ -4,9 +4,54 @@ Contains all operation mode mappings, evaluation thresholds, and color definitio
 """
 
 # ============================================================================
-# Build / bundle stamp (shown in Help & Reference to verify EXE vs dev build)
+# Application version and build stamp (shown in UI and Help & Reference)
 # ============================================================================
-BUILD_STAMP = "gearshift-json-v3"
+APP_VERSION = "6.0"
+BUILD_STAMP = "v6-json-v1"
+
+# ============================================================================
+# Change log — each release documents user-visible changes (shown on Change log page)
+# ============================================================================
+CHANGE_LOG = [
+    {
+        "version": "6.0",
+        "summary": "Version 6 — gear shift updates and change log",
+        "changes": [
+            "Application version updated to **V6.0**.",
+            "Gear shift sub-operation **10097800** renamed to **Maneuvering at Creep Speed** (under Gear shift on the HeatMap).",
+            "New **Change log** page listing changes for each release.",
+            "Continues to include Upshift (10090100) and Downshift (10090200) general gear shift assessments.",
+        ],
+    },
+    {
+        "version": "5.2",
+        "summary": "Gear shift general assessments and Windows EXE",
+        "changes": [
+            "Added general gear shift assessments: **Upshift (10090100)** and **Downshift (10090200)** at the end of the Gear shift block.",
+            "Windows **.exe** build (`build_exe.bat`) with bundled `operation_modes.json` for reliable operation-code updates in the EXE.",
+            "EXE loads operation modes from JSON instead of frozen bytecode so Help & Reference matches `streamlit run`.",
+            "PyInstaller spec bundles Python/MSVC runtime DLLs, Tcl/Tk data, and matplotlib Agg backend.",
+        ],
+    },
+    {
+        "version": "5.1",
+        "summary": "Tip out mapping and HeatMap operation cleanup",
+        "changes": [
+            "Removed **Tip out at Deceleration (10040400)** from the HeatMap operation list.",
+            "**Tip Out After Acceleration** remapped to code **10040300** (At constant speed / acceleration).",
+            "Styled **HeatMap Excel export** matching the on-screen heatmap colors and layout.",
+        ],
+    },
+    {
+        "version": "5.0",
+        "summary": "Initial Python port",
+        "changes": [
+            "Python **Streamlit** port of the Excel AVL-DRIVE Heatmap Tool v5.1.",
+            "AVL Data Input, Odriv Data Input, Run Evaluation, and HeatMap views.",
+            "ODRIV Excel upload with dot-color parsing, auto-comments for RED P1, and group status evaluation.",
+        ],
+    },
+]
 
 # ============================================================================
 # Operation Mode Mapping (Mapping Sheet)
@@ -43,7 +88,7 @@ OPERATION_MODE_MAPPING = {
     10093100: "Kick down / tip in downshift",
     10098300: "Load reversal downshift",
     10093400: "Coast / brake-on downshift",
-    10097800: "Maneuvering",
+    10097800: "Maneuvering at Creep Speed",
     10097900: "Selector lever change",
     10090100: "Upshift",
     10090200: "Downshift",
@@ -146,6 +191,7 @@ AVL_ODRIV_MAPPING = {
     "Downshift": 10090200,
     "GS Downshift": 10090200,
     "Gearshift Downshift": 10090200,
+    "Maneuvering at Creep Speed": 10097800,
     "Maneuvering": 10097800,
     "Maneuvering - Cold": 10097800,
     "Maneuvering with throttle": 10097800,
@@ -321,7 +367,7 @@ def _apply_operation_modes_json():
     """Load operation mode tables from JSON when the bundle file is present."""
     import json
 
-    global BUILD_STAMP, OPERATION_MODE_MAPPING, AVL_ODRIV_MAPPING
+    global BUILD_STAMP, APP_VERSION, CHANGE_LOG, OPERATION_MODE_MAPPING, AVL_ODRIV_MAPPING
     global HEATMAP_OPERATION_CODES, PARENT_OPERATION_CODES
     global GEAR_SHIFT_GENERAL_CODES, GEAR_SHIFT_DETAILED_CODES
     global _OPERATION_MODES_JSON_PATH
@@ -342,6 +388,8 @@ def _apply_operation_modes_json():
         data = json.load(fh)
 
     BUILD_STAMP = data.get("BUILD_STAMP", BUILD_STAMP)
+    APP_VERSION = data.get("APP_VERSION", APP_VERSION)
+    CHANGE_LOG = data.get("CHANGE_LOG", CHANGE_LOG)
     OPERATION_MODE_MAPPING = {
         int(code): name for code, name in data["OPERATION_MODE_MAPPING"].items()
     }

@@ -34,7 +34,9 @@ from PIL import Image as _PILImage
 import streamlit as st
 
 from config import (
+    APP_VERSION,
     BUILD_STAMP,
+    CHANGE_LOG,
     STATUS_COLORS,
     COLOR_GREEN,
     COLOR_YELLOW,
@@ -88,7 +90,7 @@ from evaluation_engine import (
 # Page Configuration
 # ============================================================================
 st.set_page_config(
-    page_title="AVL-DRIVE Heatmap Tool V5.1",
+    page_title=f"AVL-DRIVE Heatmap Tool V{APP_VERSION}",
     page_icon="🚗",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -96,7 +98,7 @@ st.set_page_config(
 
 
 def main():
-    st.title("🚗 AVL-DRIVE Heatmap Tool V5.1")
+    st.title(f"🚗 AVL-DRIVE Heatmap Tool V{APP_VERSION}")
 
     # Sidebar navigation
     st.sidebar.title("Navigation")
@@ -108,6 +110,7 @@ def main():
             "📈 Run Evaluation And Result",
             "🔥 HeatMap",
             "📖 Help & Reference",
+            "📋 Change log",
         ],
     )
 
@@ -121,6 +124,8 @@ def main():
         evaluation_results_page()
     elif page == "📖 Help & Reference":
         help_page()
+    elif page == "📋 Change log":
+        changelog_page()
 
 
 # ============================================================================
@@ -907,6 +912,7 @@ def _operation_mode_tables_for_help():
 def help_page():
     st.header("📖 Help & Reference")
     tables = _operation_mode_tables_for_help()
+    st.caption(f"Application version **V{APP_VERSION}**")
 
     with st.expander("🔢 Operation Mode Codes", expanded=False):
         st.markdown(
@@ -1077,6 +1083,36 @@ def help_page():
             st.markdown('<div style="background-color:#F0F0F0;color:gray;'
                        'padding:10px;border-radius:5px;text-align:center;">'
                        '⚪ N/A</div>', unsafe_allow_html=True)
+
+
+def _changelog_entries():
+    """Return change log entries (EXE reads from operation_modes.json when frozen)."""
+    if getattr(sys, "frozen", False):
+        import json
+
+        json_path = os.path.join(sys._MEIPASS, "operation_modes.json")
+        with open(json_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data.get("CHANGE_LOG", CHANGE_LOG), data.get("APP_VERSION", APP_VERSION)
+
+    return CHANGE_LOG, APP_VERSION
+
+
+def changelog_page():
+    st.header("📋 Change log")
+    entries, version = _changelog_entries()
+    st.markdown(
+        f"Release history for **AVL-DRIVE Heatmap Tool V{version}**. "
+        "Newest versions are listed first."
+    )
+
+    for entry in entries:
+        ver = entry.get("version", "?")
+        summary = entry.get("summary", "")
+        changes = entry.get("changes", [])
+        with st.expander(f"Version {ver} — {summary}", expanded=ver == version):
+            for item in changes:
+                st.markdown(f"- {item}")
 
 
 # ============================================================================

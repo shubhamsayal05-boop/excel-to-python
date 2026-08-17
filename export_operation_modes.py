@@ -5,7 +5,9 @@ import json
 import config
 
 payload = {
+    "APP_VERSION": config.APP_VERSION,
     "BUILD_STAMP": config.BUILD_STAMP,
+    "CHANGE_LOG": config.CHANGE_LOG,
     "OPERATION_MODE_MAPPING": {
         str(code): name for code, name in config.OPERATION_MODE_MAPPING.items()
     },
