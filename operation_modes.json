@@ -205,6 +205,9 @@
     10451400,
     10451500
   ],
+  "HEATMAP_OPERATION_LABELS": {
+    "10097800": "Maneuvering"
+  },
   "OPERATION_MODE_MAPPING": {
     "10000000": "AVL-DRIVE Rating",
     "10010000": "Idle",

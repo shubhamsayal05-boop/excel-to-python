@@ -4,7 +4,23 @@ Corresponds to the VBA RefreshHeatmap macro and related functions.
 """
 
 import pandas as pd
-from config import OPERATION_MODE_MAPPING, HEATMAP_OPERATION_CODES
+from config import (
+    OPERATION_MODE_MAPPING,
+    HEATMAP_OPERATION_CODES,
+    HEATMAP_OPERATION_LABELS,
+)
+
+
+def apply_heatmap_display_labels(df):
+    """Apply HeatMap-tab-only operation names; leaves other pages unchanged."""
+    if df is None or df.empty or "Op Code" not in df.columns:
+        return df
+    result = df.copy()
+    for idx, row in result.iterrows():
+        op_code = row["Op Code"]
+        if op_code in HEATMAP_OPERATION_LABELS:
+            result.at[idx, "Operation Mode"] = HEATMAP_OPERATION_LABELS[op_code]
+    return result
 
 
 def build_heatmap_template():

@@ -15,6 +15,9 @@ payload = {
     "HEATMAP_OPERATION_CODES": config.HEATMAP_OPERATION_CODES,
     "PARENT_OPERATION_CODES": sorted(config.PARENT_OPERATION_CODES),
     "GEAR_SHIFT_GENERAL_CODES": sorted(config.GEAR_SHIFT_GENERAL_CODES),
+    "HEATMAP_OPERATION_LABELS": {
+        str(code): name for code, name in config.HEATMAP_OPERATION_LABELS.items()
+    },
 }
 
 with open("operation_modes.json", "w", encoding="utf-8") as fh:

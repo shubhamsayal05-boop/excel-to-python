@@ -276,6 +276,11 @@ GEAR_SHIFT_DETAILED_CODES = {
     if code not in GEAR_SHIFT_GENERAL_CODES
 }
 
+# Short labels used on the HeatMap tab only (Help & Reference keeps OPERATION_MODE_MAPPING).
+HEATMAP_OPERATION_LABELS = {
+    10097800: "Maneuvering",
+}
+
 # ============================================================================
 # Evaluation Thresholds
 # ============================================================================
@@ -363,7 +368,7 @@ def _apply_operation_modes_json():
 
     global BUILD_STAMP, APP_VERSION, CHANGE_LOG, OPERATION_MODE_MAPPING, AVL_ODRIV_MAPPING
     global HEATMAP_OPERATION_CODES, PARENT_OPERATION_CODES
-    global GEAR_SHIFT_GENERAL_CODES, GEAR_SHIFT_DETAILED_CODES
+    global GEAR_SHIFT_GENERAL_CODES, GEAR_SHIFT_DETAILED_CODES, HEATMAP_OPERATION_LABELS
     global _OPERATION_MODES_JSON_PATH
 
     path = _resolve_operation_modes_json_path()
@@ -391,6 +396,11 @@ def _apply_operation_modes_json():
     HEATMAP_OPERATION_CODES = list(data["HEATMAP_OPERATION_CODES"])
     PARENT_OPERATION_CODES = set(data["PARENT_OPERATION_CODES"])
     GEAR_SHIFT_GENERAL_CODES = set(data["GEAR_SHIFT_GENERAL_CODES"])
+    HEATMAP_OPERATION_LABELS = {
+        int(code): name for code, name in data.get("HEATMAP_OPERATION_LABELS", {}).items()
+    }
+    if not HEATMAP_OPERATION_LABELS:
+        HEATMAP_OPERATION_LABELS = {10097800: "Maneuvering"}
 
     _gs_start = HEATMAP_OPERATION_CODES.index(10090000)
     _gs_end = HEATMAP_OPERATION_CODES.index(10080000)

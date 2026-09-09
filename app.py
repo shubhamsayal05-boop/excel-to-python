@@ -70,6 +70,7 @@ from heatmap_engine import (
     parse_heatmap_data,
     refresh_heatmap,
     filter_heatmap_rows,
+    apply_heatmap_display_labels,
 )
 from heatmap_excel_export import export_heatmap_to_excel
 from evaluation_engine import (
@@ -470,7 +471,7 @@ def heatmap_view_page():
         hide_empty = st.checkbox("Hide rows without tested vehicle data", value=True)
 
     # Apply filtering
-    display_df = heatmap_df.copy()
+    display_df = apply_heatmap_display_labels(heatmap_df.copy())
     if hide_empty and tested_vehicle:
         display_df = filter_heatmap_rows(display_df, tested_vehicle)
 
