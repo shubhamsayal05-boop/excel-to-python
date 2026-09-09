@@ -1,5 +1,5 @@
 {
-  "APP_VERSION": "6.0",
+  "APP_VERSION": "6.1",
   "AVL_ODRIV_MAPPING": {
     "(PT) KD - tip in downshift": 10093100,
     "(TO) KD - tip in downshift": 10093100,
@@ -105,8 +105,15 @@
     "Without brake": 10070500,
     "Without load": 10080200
   },
-  "BUILD_STAMP": "v6-json-v1",
+  "BUILD_STAMP": "v6.1-json-v1",
   "CHANGE_LOG": [
+    {
+      "changes": [
+        "Changed the name of **Maneuvering at Creep Speed** to **Maneuvering** on the HeatMap tab."
+      ],
+      "summary": "HeatMap label update",
+      "version": "6.1"
+    },
     {
       "changes": [
         "Added **Maneuvering at Creep Speed (10097800)** under Gear shift on the HeatMap."

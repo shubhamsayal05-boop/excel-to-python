@@ -6,13 +6,20 @@ Contains all operation mode mappings, evaluation thresholds, and color definitio
 # ============================================================================
 # Application version and build stamp (shown in UI and Help & Reference)
 # ============================================================================
-APP_VERSION = "6.0"
-BUILD_STAMP = "v6-json-v1"
+APP_VERSION = "6.1"
+BUILD_STAMP = "v6.1-json-v1"
 
 # ============================================================================
 # Change log — each release documents user-visible changes (shown on Change log page)
 # ============================================================================
 CHANGE_LOG = [
+    {
+        "version": "6.1",
+        "summary": "HeatMap label update",
+        "changes": [
+            "Changed the name of **Maneuvering at Creep Speed** to **Maneuvering** on the HeatMap tab.",
+        ],
+    },
     {
         "version": "6.0",
         "summary": "Gear shift update",

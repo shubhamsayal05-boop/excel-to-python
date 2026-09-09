@@ -3,7 +3,7 @@ setlocal
 cd /d "%~dp0"
 
 echo ============================================
-echo  AVL-DRIVE Heatmap Tool V6.0 - Windows EXE
+echo  AVL-DRIVE Heatmap Tool V6.1 - Windows EXE
 echo ============================================
 echo.
 echo Build folder: %CD%

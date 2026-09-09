@@ -1,4 +1,4 @@
-AVL-DRIVE Heatmap Tool V6.0 — files required to build the Windows .exe
+AVL-DRIVE Heatmap Tool V6.1 — files required to build the Windows .exe
 ================================================================================
 
 Get the latest code:
@@ -77,5 +77,5 @@ Do not run streamlit run app.py and the EXE at the same time.
 
 VERIFY IN APP (Help & Reference)
 --------------------------------
-  Bundle stamp: v6-json-v1
+  Bundle stamp: v6.1-json-v1
   Rows include 10090100 Upshift and 10090200 Downshift
