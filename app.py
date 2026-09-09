@@ -6,6 +6,23 @@ Usage:
     streamlit run app.py
 """
 
+import sys
+import os
+
+# EXE bundle: load config and engines from .py files in _MEIPASS before any
+# local imports (Streamlit reruns this file on each interaction).
+if getattr(sys, "frozen", False):
+    import importlib.util
+    import os
+
+    _bundle_base = sys._MEIPASS
+    _loader_path = os.path.join(_bundle_base, "bundle_loader.py")
+    _spec = importlib.util.spec_from_file_location("bundle_loader", _loader_path)
+    _bundle_loader = importlib.util.module_from_spec(_spec)
+    sys.modules["bundle_loader"] = _bundle_loader
+    _spec.loader.exec_module(_bundle_loader)
+    _bundle_loader.load_bundle_modules(_bundle_base)
+
 import html as _html
 import io
 
@@ -17,6 +34,9 @@ from PIL import Image as _PILImage
 import streamlit as st
 
 from config import (
+    APP_VERSION,
+    BUILD_STAMP,
+    CHANGE_LOG,
     STATUS_COLORS,
     COLOR_GREEN,
     COLOR_YELLOW,
@@ -32,6 +52,9 @@ from config import (
     DOT_FONT_COLORS,
     OPERATION_MODE_MAPPING,
     AVL_ODRIV_MAPPING,
+    HEATMAP_OPERATION_CODES,
+    GEAR_SHIFT_GENERAL_CODES,
+    GEAR_SHIFT_DETAILED_CODES,
     PARENT_OPERATION_CODES,
     SCORE_SCALE_MIN,
     SCORE_SCALE_MID,
@@ -47,6 +70,7 @@ from heatmap_engine import (
     parse_heatmap_data,
     refresh_heatmap,
     filter_heatmap_rows,
+    apply_heatmap_display_labels,
 )
 from heatmap_excel_export import export_heatmap_to_excel
 from evaluation_engine import (
@@ -67,7 +91,7 @@ from evaluation_engine import (
 # Page Configuration
 # ============================================================================
 st.set_page_config(
-    page_title="AVL-DRIVE Heatmap Tool",
+    page_title=f"AVL-DRIVE Heatmap Tool V{APP_VERSION}",
     page_icon="🚗",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -75,7 +99,7 @@ st.set_page_config(
 
 
 def main():
-    st.title("🚗 AVL-DRIVE Heatmap Tool")
+    st.title(f"🚗 AVL-DRIVE Heatmap Tool V{APP_VERSION}")
 
     # Sidebar navigation
     st.sidebar.title("Navigation")
@@ -87,6 +111,7 @@ def main():
             "📈 Run Evaluation And Result",
             "🔥 HeatMap",
             "📖 Help & Reference",
+            "📋 Change log",
         ],
     )
 
@@ -100,6 +125,8 @@ def main():
         evaluation_results_page()
     elif page == "📖 Help & Reference":
         help_page()
+    elif page == "📋 Change log":
+        changelog_page()
 
 
 # ============================================================================
@@ -444,7 +471,7 @@ def heatmap_view_page():
         hide_empty = st.checkbox("Hide rows without tested vehicle data", value=True)
 
     # Apply filtering
-    display_df = heatmap_df.copy()
+    display_df = apply_heatmap_display_labels(heatmap_df.copy())
     if hide_empty and tested_vehicle:
         display_df = filter_heatmap_rows(display_df, tested_vehicle)
 
@@ -841,17 +868,107 @@ def evaluation_results_page():
 # ============================================================================
 # Page: Help & Reference
 # ============================================================================
+def _operation_mode_tables_for_help():
+    """Return operation mode tables (EXE reads operation_modes.json directly)."""
+    if getattr(sys, "frozen", False):
+        import json
+        import os
+
+        json_path = os.path.join(sys._MEIPASS, "operation_modes.json")
+        with open(json_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        heatmap_codes = list(data["HEATMAP_OPERATION_CODES"])
+        general_codes = set(data["GEAR_SHIFT_GENERAL_CODES"])
+        gs_start = heatmap_codes.index(10090000)
+        gs_end = heatmap_codes.index(10080000)
+        detailed_codes = {
+            code for code in heatmap_codes[gs_start + 1:gs_end]
+            if code not in general_codes
+        }
+        return {
+            "BUILD_STAMP": data.get("BUILD_STAMP", "?"),
+            "HEATMAP_OPERATION_CODES": heatmap_codes,
+            "OPERATION_MODE_MAPPING": {
+                int(code): name for code, name in data["OPERATION_MODE_MAPPING"].items()
+            },
+            "PARENT_OPERATION_CODES": set(data["PARENT_OPERATION_CODES"]),
+            "GEAR_SHIFT_GENERAL_CODES": general_codes,
+            "GEAR_SHIFT_DETAILED_CODES": detailed_codes,
+            "AVL_ODRIV_MAPPING": data["AVL_ODRIV_MAPPING"],
+            "source": json_path,
+        }
+
+    return {
+        "BUILD_STAMP": BUILD_STAMP,
+        "HEATMAP_OPERATION_CODES": HEATMAP_OPERATION_CODES,
+        "OPERATION_MODE_MAPPING": OPERATION_MODE_MAPPING,
+        "PARENT_OPERATION_CODES": PARENT_OPERATION_CODES,
+        "GEAR_SHIFT_GENERAL_CODES": GEAR_SHIFT_GENERAL_CODES,
+        "GEAR_SHIFT_DETAILED_CODES": GEAR_SHIFT_DETAILED_CODES,
+        "AVL_ODRIV_MAPPING": AVL_ODRIV_MAPPING,
+        "source": "config.py",
+    }
+
+
 def help_page():
     st.header("📖 Help & Reference")
+    tables = _operation_mode_tables_for_help()
+    st.caption(f"Application version **V{APP_VERSION}**")
 
     with st.expander("🔢 Operation Mode Codes", expanded=False):
-        st.markdown("Reference table of all operation mode codes and their names:")
-        ref_data = [{"Code": k, "Operation Mode": v} for k, v in OPERATION_MODE_MAPPING.items()]
-        st.dataframe(pd.DataFrame(ref_data), use_container_width=True)
+        st.markdown(
+            "Reference table of operation mode codes and names, in the same order "
+            "as the **HeatMap Sheet** rows."
+        )
+        ref_rows = []
+        seen_codes = set()
+        for code in tables["HEATMAP_OPERATION_CODES"]:
+            name = tables["OPERATION_MODE_MAPPING"].get(code, f"Unknown ({code})")
+            if code in tables["PARENT_OPERATION_CODES"]:
+                row_type = "Parent"
+            elif code in tables["GEAR_SHIFT_GENERAL_CODES"]:
+                row_type = "Gear shift — general assessment"
+            elif code in tables["GEAR_SHIFT_DETAILED_CODES"]:
+                row_type = "Gear shift — detailed sub-mode"
+            else:
+                row_type = "Sub-operation"
+            ref_rows.append({
+                "Code": code,
+                "Operation Mode": name,
+                "Row Type": row_type,
+            })
+            seen_codes.add(code)
+        for code, name in tables["OPERATION_MODE_MAPPING"].items():
+            if code not in seen_codes:
+                ref_rows.append({
+                    "Code": code,
+                    "Operation Mode": name,
+                    "Row Type": "Mapping sheet only",
+                })
+        st.dataframe(pd.DataFrame(ref_rows), use_container_width=True)
+        has_gs = (
+            10090100 in tables["HEATMAP_OPERATION_CODES"]
+            and 10090200 in tables["HEATMAP_OPERATION_CODES"]
+        )
+        st.caption(
+            f"Bundle: **{tables['BUILD_STAMP']}** · "
+            f"rows={len(tables['HEATMAP_OPERATION_CODES'])} · "
+            f"gearshift_general=**{'yes' if has_gs else 'no'}** · "
+            f"source=`{tables['source']}`"
+        )
 
     with st.expander("🔗 AVL-ODRIV Name Mapping", expanded=False):
-        st.markdown("Maps detailed operation names to standard operation codes:")
-        map_data = [{"Name": k, "Op Code": v} for k, v in AVL_ODRIV_MAPPING.items()]
+        st.markdown(
+            "Maps detailed ODRIV operation names to standard operation codes "
+            "(sorted by Op Code)."
+        )
+        map_data = sorted(
+            [
+                {"Name": name, "Op Code": code}
+                for name, code in tables["AVL_ODRIV_MAPPING"].items()
+            ],
+            key=lambda row: (row["Op Code"], row["Name"].lower()),
+        )
         st.dataframe(pd.DataFrame(map_data), use_container_width=True)
 
     with st.expander("📊 Evaluation Rules", expanded=True):
@@ -967,6 +1084,36 @@ def help_page():
             st.markdown('<div style="background-color:#F0F0F0;color:gray;'
                        'padding:10px;border-radius:5px;text-align:center;">'
                        '⚪ N/A</div>', unsafe_allow_html=True)
+
+
+def _changelog_entries():
+    """Return change log entries (EXE reads from operation_modes.json when frozen)."""
+    if getattr(sys, "frozen", False):
+        import json
+
+        json_path = os.path.join(sys._MEIPASS, "operation_modes.json")
+        with open(json_path, encoding="utf-8") as fh:
+            data = json.load(fh)
+        return data.get("CHANGE_LOG", CHANGE_LOG), data.get("APP_VERSION", APP_VERSION)
+
+    return CHANGE_LOG, APP_VERSION
+
+
+def changelog_page():
+    st.header("📋 Change log")
+    entries, version = _changelog_entries()
+    st.markdown(
+        f"Release history for **AVL-DRIVE Heatmap Tool V{version}**. "
+        "Newest versions are listed first."
+    )
+
+    for entry in entries:
+        ver = entry.get("version", "?")
+        summary = entry.get("summary", "")
+        changes = entry.get("changes", [])
+        with st.expander(f"Version {ver} — {summary}", expanded=ver == version):
+            for item in changes:
+                st.markdown(f"- {item}")
 
 
 # ============================================================================
@@ -1162,6 +1309,7 @@ def _build_heatmap_html(df, vehicle_names, target_label, target_vehicle=None, te
     .hm-parent td {{ font-weight: bold; }}
     .hm-parent .hm-opname {{ background-color: {COLOR_HEATMAP_HEADER}; }}
     .hm-parent .hm-code {{ background-color: {COLOR_HEATMAP_HEADER}; }}
+    .hm-gearshift-general td {{ border-top: 2px solid {COLOR_HEATMAP_BORDER}; }}
     /* Target label row – white background, black text (Excel theme=0, tint=0) */
     .hm-target {{ background-color: {COLOR_WHITE}; color: {COLOR_BLACK}; text-align: center; font-weight: bold; font-size: 11px; }}
     </style>
@@ -1218,8 +1366,14 @@ def _build_heatmap_html(df, vehicle_names, target_label, target_vehicle=None, te
         op_code = row.get("Op Code", "")
         op_name = row.get("Operation Mode", "")
         is_parent = op_code in PARENT_OPERATION_CODES
+        is_gearshift_general = op_code in GEAR_SHIFT_GENERAL_CODES
 
-        tr_class = ' class="hm-parent"' if is_parent else ''
+        if is_parent:
+            tr_class = ' class="hm-parent"'
+        elif is_gearshift_general:
+            tr_class = ' class="hm-gearshift-general"'
+        else:
+            tr_class = ''
         r = f'<tr{tr_class}>'
         r += f'<td class="hm-code">{op_code}</td>'
         r += f'<td class="hm-opname">{_html.escape(str(op_name))}</td>'

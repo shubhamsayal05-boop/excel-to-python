@@ -4,6 +4,57 @@ Contains all operation mode mappings, evaluation thresholds, and color definitio
 """
 
 # ============================================================================
+# Application version and build stamp (shown in UI and Help & Reference)
+# ============================================================================
+APP_VERSION = "6.1"
+BUILD_STAMP = "v6.1-json-v1"
+
+# ============================================================================
+# Change log — each release documents user-visible changes (shown on Change log page)
+# ============================================================================
+CHANGE_LOG = [
+    {
+        "version": "6.1",
+        "summary": "HeatMap label update",
+        "changes": [
+            "Changed the name of **Maneuvering at Creep Speed** to **Maneuvering** on the HeatMap tab.",
+        ],
+    },
+    {
+        "version": "6.0",
+        "summary": "Gear shift update",
+        "changes": [
+            "Added **Maneuvering at Creep Speed (10097800)** under Gear shift on the HeatMap.",
+        ],
+    },
+    {
+        "version": "5.2",
+        "summary": "Gear shift general assessments",
+        "changes": [
+            "Added general gear shift assessments: **Upshift (10090100)** and **Downshift (10090200)** at the end of the Gear shift block.",
+        ],
+    },
+    {
+        "version": "5.1",
+        "summary": "Tip out mapping and HeatMap operation cleanup",
+        "changes": [
+            "Removed **Tip out at Deceleration (10040400)** from the HeatMap operation list.",
+            "**Tip Out After Acceleration** remapped to code **10040300** (At constant speed / acceleration).",
+            "Styled **HeatMap Excel export** matching the on-screen heatmap colors and layout.",
+        ],
+    },
+    {
+        "version": "5.0",
+        "summary": "Initial Python port",
+        "changes": [
+            "Python **Streamlit** port of the Excel AVL-DRIVE Heatmap Tool v5.1.",
+            "AVL Data Input, Odriv Data Input, Run Evaluation, and HeatMap views.",
+            "ODRIV Excel upload with dot-color parsing, auto-comments for RED P1, and group status evaluation.",
+        ],
+    },
+]
+
+# ============================================================================
 # Operation Mode Mapping (Mapping Sheet)
 # Maps operation code -> standard operation mode name
 # ============================================================================
@@ -38,8 +89,10 @@ OPERATION_MODE_MAPPING = {
     10093100: "Kick down / tip in downshift",
     10098300: "Load reversal downshift",
     10093400: "Coast / brake-on downshift",
-    10097800: "Maneuvering",
+    10097800: "Maneuvering at Creep Speed",
     10097900: "Selector lever change",
+    10090100: "Upshift",
+    10090200: "Downshift",
     10080000: "Constant speed",
     10080200: "Without load",
     10080100: "Constant load",
@@ -133,6 +186,13 @@ AVL_ODRIV_MAPPING = {
     "Coast-brake-on downshift Cold": 10093100,
     "Load reversal downshift": 10098300,
     "Coast / brake-on downshift": 10093400,
+    "Upshift": 10090100,
+    "GS Upshift": 10090100,
+    "Gearshift Upshift": 10090100,
+    "Downshift": 10090200,
+    "GS Downshift": 10090200,
+    "Gearshift Downshift": 10090200,
+    "Maneuvering at Creep Speed": 10097800,
     "Maneuvering": 10097800,
     "Maneuvering - Cold": 10097800,
     "Maneuvering with throttle": 10097800,
@@ -183,7 +243,7 @@ HEATMAP_OPERATION_CODES = [
     10070000, 10070500, 10070100, 10071000,
     10090000, 10092300, 10092500, 10098200, 10098400,
     10092100, 10093200, 10098100, 10093100, 10098300,
-    10093400, 10097800, 10097900,
+    10093400, 10097800, 10097900, 10090100, 10090200,
     10080000, 10080200, 10080100,
     10010000, 10011000, 10010200, 10010700, 10015200,
     10020000, 10020100, 10020200, 10020300,
@@ -209,6 +269,23 @@ PARENT_OPERATION_CODES = {
     10460000,  # TCC control
     10430000,  # Cylinder deactivation
     10450000,  # Vehicle stationary
+}
+
+# General gearshift assessments — separate from detailed upshift/downshift sub-modes
+# (Power-on upshift, Tip out upshift, etc.). Listed at the end of the Gear shift
+# block on the HeatMap sheet.
+GEAR_SHIFT_GENERAL_CODES = {10090100, 10090200}
+
+_GEAR_SHIFT_SECTION_START = HEATMAP_OPERATION_CODES.index(10090000)
+_GEAR_SHIFT_SECTION_END = HEATMAP_OPERATION_CODES.index(10080000)
+GEAR_SHIFT_DETAILED_CODES = {
+    code for code in HEATMAP_OPERATION_CODES[_GEAR_SHIFT_SECTION_START + 1:_GEAR_SHIFT_SECTION_END]
+    if code not in GEAR_SHIFT_GENERAL_CODES
+}
+
+# Short labels used on the HeatMap tab only (Help & Reference keeps OPERATION_MODE_MAPPING).
+HEATMAP_OPERATION_LABELS = {
+    10097800: "Maneuvering",
 }
 
 # ============================================================================
@@ -270,3 +347,75 @@ SCORE_SCALE_MAX = 10.0        # green endpoint
 SCORE_COLOR_MIN = (0xFF, 0x00, 0x00)   # #FF0000
 SCORE_COLOR_MID = (0xFF, 0xFF, 0x00)   # #FFFF00
 SCORE_COLOR_MAX = (0x00, 0xB0, 0x50)   # #00B050
+
+# ============================================================================
+# Frozen EXE / bundled JSON (operation_modes.json is the runtime source of truth)
+# ============================================================================
+_OPERATION_MODES_JSON_PATH = None
+
+
+def _resolve_operation_modes_json_path():
+    import os
+    import sys
+
+    candidates = []
+    if getattr(sys, "frozen", False):
+        candidates.append(os.path.join(sys._MEIPASS, "operation_modes.json"))
+    here = os.path.dirname(os.path.abspath(__file__))
+    candidates.append(os.path.join(here, "operation_modes.json"))
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _apply_operation_modes_json():
+    """Load operation mode tables from JSON when the bundle file is present."""
+    import json
+
+    global BUILD_STAMP, APP_VERSION, CHANGE_LOG, OPERATION_MODE_MAPPING, AVL_ODRIV_MAPPING
+    global HEATMAP_OPERATION_CODES, PARENT_OPERATION_CODES
+    global GEAR_SHIFT_GENERAL_CODES, GEAR_SHIFT_DETAILED_CODES, HEATMAP_OPERATION_LABELS
+    global _OPERATION_MODES_JSON_PATH
+
+    path = _resolve_operation_modes_json_path()
+    if not path:
+        if getattr(__import__("sys"), "frozen", False):
+            raise RuntimeError(
+                "operation_modes.json is missing from the EXE bundle. Rebuild with build_exe.bat."
+            )
+        return
+
+    # Development uses the Python tables in this file. Only the frozen EXE overlays JSON.
+    if not getattr(__import__("sys"), "frozen", False):
+        return
+
+    with open(path, encoding="utf-8") as fh:
+        data = json.load(fh)
+
+    BUILD_STAMP = data.get("BUILD_STAMP", BUILD_STAMP)
+    APP_VERSION = data.get("APP_VERSION", APP_VERSION)
+    CHANGE_LOG = data.get("CHANGE_LOG", CHANGE_LOG)
+    OPERATION_MODE_MAPPING = {
+        int(code): name for code, name in data["OPERATION_MODE_MAPPING"].items()
+    }
+    AVL_ODRIV_MAPPING = data["AVL_ODRIV_MAPPING"]
+    HEATMAP_OPERATION_CODES = list(data["HEATMAP_OPERATION_CODES"])
+    PARENT_OPERATION_CODES = set(data["PARENT_OPERATION_CODES"])
+    GEAR_SHIFT_GENERAL_CODES = set(data["GEAR_SHIFT_GENERAL_CODES"])
+    HEATMAP_OPERATION_LABELS = {
+        int(code): name for code, name in data.get("HEATMAP_OPERATION_LABELS", {}).items()
+    }
+    if not HEATMAP_OPERATION_LABELS:
+        HEATMAP_OPERATION_LABELS = {10097800: "Maneuvering"}
+
+    _gs_start = HEATMAP_OPERATION_CODES.index(10090000)
+    _gs_end = HEATMAP_OPERATION_CODES.index(10080000)
+    GEAR_SHIFT_DETAILED_CODES = {
+        code for code in HEATMAP_OPERATION_CODES[_gs_start + 1:_gs_end]
+        if code not in GEAR_SHIFT_GENERAL_CODES
+    }
+    _OPERATION_MODES_JSON_PATH = path
+
+
+_apply_operation_modes_json()

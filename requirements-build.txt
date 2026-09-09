@@ -1,0 +1,4 @@
+# Install for Windows EXE build only (run: pip install -r requirements-build.txt)
+-r requirements.txt
+pyinstaller>=6.3.0
+lxml>=4.9.0
